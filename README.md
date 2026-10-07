@@ -1,6 +1,6 @@
 # devops-grupo-3 · Keycloak
 
-Proyecto del curso **Fundamentos de DevOps y SRE** (Posgrados en Ingeniería de Sistemas y Computación, 2026-02).
+Proyecto del módulo del diplomado **Fundamentos de DevOps y SRE** (Posgrados en Ingeniería de Sistemas y Computación, 2026-02).
 
 Empaquetado, ejecución local e integración continua de **[Keycloak](https://www.keycloak.org/)** (gestión de identidades y acceso, IAM) con **PostgreSQL** como persistencia.
 
@@ -28,3 +28,6 @@ docker compose ps             # ambos servicios deben quedar "healthy"
 - Métricas (Prometheus): <http://localhost:9000/metrics>
 
 Detener: `docker compose down` · Detener y borrar datos: `docker compose down -v`
+
+Creado por: 
+- Juan Carranza (jdcarranzas@unal.edu.co)
