@@ -1,0 +1,8 @@
+# Variables de entorno reales (contienen secretos). Solo se versiona .env.example
+.env
+
+# Archivos de sistema / editores
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

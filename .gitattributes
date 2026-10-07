@@ -1,0 +1,2 @@
+# Fuerza finales de línea LF (evita problemas de CRLF dentro de los contenedores Linux)
+* text=auto eol=lf

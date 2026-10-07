@@ -1,0 +1,7 @@
+# Solo el Dockerfile es necesario en el contexto de build
+.git
+.github
+.env
+.env.example
+*.md
+docker-compose.yml
