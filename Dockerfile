@@ -5,7 +5,7 @@
 #                    (BD PostgreSQL, health y métricas) -> arranque más rápido.
 # Etapa 2 (runtime): copia solo el resultado compilado sobre una imagen limpia.
 # =============================================================================
-ARG KC_VERSION=26.7.3
+ARG KC_VERSION=26.8.0
 
 # ---------- Etapa 1: build ----------
 FROM quay.io/keycloak/keycloak:${KC_VERSION} AS builder
