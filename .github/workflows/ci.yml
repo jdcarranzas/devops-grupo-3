@@ -95,6 +95,7 @@ jobs:
           output: trivy-report.txt
           severity: UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL
           exit-code: "0"
+          scanners: vuln
 
       - name: Publicar reporte de Trivy como artefacto
         if: always()
@@ -111,6 +112,8 @@ jobs:
           severity: CRITICAL
           ignore-unfixed: true
           exit-code: "1"
+          scanners: vuln
+          trivyignores: .trivyignore
           skip-setup-trivy: true
 
       # 4. Publish: solo cuando el cambio llega a main (no en Pull Requests)

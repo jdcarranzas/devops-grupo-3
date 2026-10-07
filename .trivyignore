@@ -1,0 +1,4 @@
+# Excepciones de vulnerabilidades aceptadas (una CVE por línea).
+# Toda excepción debe documentar: motivo, responsable y fecha de revisión.
+# Ejemplo:
+# CVE-2026-00000  # No explotable: el componente no se usa. Revisar 2026-11-01 (equipo 3)
