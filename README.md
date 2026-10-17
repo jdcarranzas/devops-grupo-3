@@ -12,6 +12,8 @@ Empaquetado, ejecución local e integración continua de **[Keycloak](https://ww
 | `docker-compose.yml` | Keycloak + PostgreSQL + volumen persistente, levantados con un solo comando |
 | `.env.example` | Plantilla de variables de entorno (credenciales) |
 | `.github/workflows/ci.yml` | Pipeline de CI: lint → build → escaneo de vulnerabilidades → publicación |
+| `terraform/` | Infraestructura como Código (Entregable 2): módulos network, database y keycloak, ambientes dev/prod y políticas. Ver [terraform/README.md](terraform/README.md) |
+| `.github/workflows/terraform.yml` | Pipeline de IaC: fmt → validate → TFLint → Checkov → plan (dev/prod) → políticas OPA con conftest |
 
 ## Ejecución local
 

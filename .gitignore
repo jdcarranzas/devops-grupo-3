@@ -6,3 +6,24 @@
 Thumbs.db
 .idea/
 .vscode/
+
+# --- Terraform ---
+# Estado y planes: contienen los secretos en texto plano -> nunca se versionan
+**/.terraform/*
+*.tfstate
+*.tfstate.*
+terraform.tfstate.d/
+*.tfplan
+tfplan
+tfplan.json
+crash.log
+crash.*.log
+# Archivos locales con secretos (si alguien prefiere un .tfvars en vez de TF_VAR_)
+*.secret.tfvars
+*.auto.tfvars
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+.terraformrc
+terraform.rc
