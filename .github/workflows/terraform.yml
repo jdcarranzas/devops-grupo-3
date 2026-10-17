@@ -1,0 +1,142 @@
+# =============================================================================
+# Pipeline de Infraestructura como Código (Terraform) - Entregable 2
+#   Job 1 - Análisis estático : fmt, validate, TFLint y Checkov
+#   Job 2 - Plan y políticas  : terraform plan real (dev y prod) contra el Docker
+#                               del runner + políticas OPA evaluadas con conftest
+# Si cualquier paso falla, el cambio no se puede desplegar.
+# =============================================================================
+name: Terraform
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "terraform/**"
+      - ".github/workflows/terraform.yml"
+  push:
+    paths:
+      - "terraform/**"
+      - ".github/workflows/terraform.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  TF_VERSION: "1.16.6"
+  TFLINT_VERSION: "v0.64.0"
+  CHECKOV_VERSION: "3.3.29"
+  CONFTEST_VERSION: "0.71.1"
+  TF_IN_AUTOMATION: "true"
+  TF_INPUT: "false"
+
+defaults:
+  run:
+    working-directory: terraform
+
+jobs:
+  # ---------------------------------------------------------------------------
+  static-analysis:
+    name: 1. Análisis estático (fmt, validate, TFLint, Checkov)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Instalar Terraform
+        uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+          terraform_wrapper: false
+
+      - name: terraform fmt (formato)
+        run: terraform fmt -check -recursive -diff
+
+      - name: terraform init (sin backend)
+        run: terraform init -backend=false
+
+      - name: terraform validate (sintaxis y tipos)
+        run: terraform validate
+
+      - name: Instalar TFLint
+        uses: terraform-linters/setup-tflint@v6
+        with:
+          tflint_version: ${{ env.TFLINT_VERSION }}
+
+      - name: TFLint (buenas prácticas)
+        run: |
+          tflint --init
+          tflint --recursive --format compact
+
+      - name: Checkov (seguridad y secretos en el código)
+        run: |
+          pip install --quiet "checkov==${CHECKOV_VERSION}"
+          checkov --config-file .checkov.yaml --skip-download
+
+  # ---------------------------------------------------------------------------
+  plan-and-policies:
+    name: 2. Plan y políticas (${{ matrix.environment }})
+    needs: static-analysis
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        environment: [dev, prod]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Instalar Terraform
+        uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+          terraform_wrapper: false
+
+      - name: Instalar conftest
+        run: |
+          url="https://github.com/open-policy-agent/conftest/releases/download"
+          curl -sSL "${url}/v${CONFTEST_VERSION}/conftest_${CONFTEST_VERSION}_Linux_x86_64.tar.gz" \
+            | sudo tar -xz -C /usr/local/bin conftest
+          conftest --version
+
+      - name: Pruebas unitarias de las políticas (conftest verify)
+        run: conftest verify --policy policy/
+
+      # Los secretos nunca están en el repositorio: para el plan de CI se
+      # generan valores aleatorios de un solo uso y se ocultan en los logs.
+      - name: Generar secretos efímeros para el plan
+        run: |
+          db_pass="$(openssl rand -base64 24)"
+          admin_pass="$(openssl rand -base64 24)"
+          echo "::add-mask::${db_pass}"
+          echo "::add-mask::${admin_pass}"
+          {
+            echo "TF_VAR_db_password=${db_pass}"
+            echo "TF_VAR_keycloak_admin_password=${admin_pass}"
+          } >> "$GITHUB_ENV"
+
+      - name: terraform init
+        run: terraform init
+
+      - name: Seleccionar workspace del ambiente
+        run: terraform workspace select -or-create ${{ matrix.environment }}
+
+      - name: terraform plan
+        run: |
+          terraform plan -no-color \
+            -var-file="environments/${{ matrix.environment }}.tfvars" \
+            -out=tfplan | tee "plan-${{ matrix.environment }}.log"
+
+      - name: Políticas OPA sobre el plan (conftest test)
+        run: |
+          terraform show -json tfplan > tfplan.json
+          conftest test tfplan.json --policy policy/ --no-color
+
+      # Solo se publica el log legible (los secretos aparecen como "sensitive").
+      # El plan binario y el JSON NO se suben porque contienen los valores reales.
+      - name: Publicar log del plan como artefacto
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: terraform-plan-${{ matrix.environment }}
+          path: terraform/plan-${{ matrix.environment }}.log
