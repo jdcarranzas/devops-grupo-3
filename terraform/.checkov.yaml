@@ -1,0 +1,10 @@
+# Checkov: análisis estático de seguridad del código IaC y búsqueda de
+# secretos escritos en el código (contraseñas, tokens, llaves).
+directory:
+  - .
+framework:
+  - terraform
+  - secrets
+compact: true
+quiet: false
+soft-fail: false
