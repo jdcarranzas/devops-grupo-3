@@ -1,0 +1,12 @@
+# Carga automática de los dashboards JSON versionados en observability/grafana/dashboards.
+apiVersion: 1
+
+providers:
+  - name: devops-grupo-3
+    folder: Keycloak SRE
+    type: file
+    disableDeletion: true
+    allowUiUpdates: false
+    updateIntervalSeconds: 30
+    options:
+      path: /var/lib/grafana/dashboards

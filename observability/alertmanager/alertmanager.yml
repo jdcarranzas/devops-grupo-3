@@ -1,0 +1,35 @@
+# =============================================================================
+# Alertmanager: agrupa, deduplica y enruta las alertas que dispara Prometheus.
+# Por decisión del equipo las notificaciones se consultan en la interfaz de
+# Alertmanager (http://localhost:9093) y en Grafana; no se envían a canales
+# externos, así que no hay credenciales en este archivo.
+# Para notificar a Slack/Discord/correo basta con añadir el bloque de
+# configuración correspondiente al receptor "guardia".
+# =============================================================================
+route:
+  receiver: guardia
+  group_by: [alertname, slo]
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 4h
+  routes:
+    # Páginas: consumo rápido del presupuesto o servicio caído.
+    - matchers: [severity="critical"]
+      receiver: guardia
+      repeat_interval: 1h
+    # Tickets: degradación lenta, se revisa en horario laboral.
+    - matchers: [severity="warning"]
+      receiver: tickets
+      group_wait: 5m
+      repeat_interval: 12h
+
+receivers:
+  - name: guardia
+  - name: tickets
+
+# Mientras haya una alerta crítica activa, las de severidad warning del mismo SLO
+# no notifican: son el mismo incidente visto en una ventana más larga.
+inhibit_rules:
+  - source_matchers: [severity="critical"]
+    target_matchers: [severity="warning"]
+    equal: [slo]

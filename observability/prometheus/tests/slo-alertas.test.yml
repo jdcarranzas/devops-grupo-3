@@ -1,0 +1,134 @@
+# =============================================================================
+# Pruebas unitarias de las reglas de SLO y de alertas (promtool test rules)
+#   Ejecutar:  promtool test rules observability/prometheus/tests/slo-alertas.test.yml
+#
+# Escenario: Keycloak atiende 10 req/s sanas durante 1 hora; en el minuto 60 se
+# cae PostgreSQL y el 100 % de las peticiones pasa a responder 5xx.
+# =============================================================================
+rule_files:
+  - ../rules/slo-recording.yml
+  - ../rules/slo-alertas.yml
+
+evaluation_interval: 1m
+
+tests:
+  - interval: 1m
+    input_series:
+      # Peticiones exitosas: 600 por minuto durante 60 min y luego ninguna.
+      - series: >-
+          http_server_requests_seconds_count{job="keycloak", method="POST", outcome="SUCCESS",
+          status="200", uri="/realms/{realm}/protocol/{protocol}/token"}
+        values: "0+600x60 36000x30"
+      # Todas las exitosas respondieron en <= 250 ms.
+      - series: >-
+          http_server_requests_seconds_bucket{job="keycloak", method="POST", outcome="SUCCESS",
+          status="200", uri="/realms/{realm}/protocol/{protocol}/token", le="0.25"}
+        values: "0+600x60 36000x30"
+      # Errores 5xx: ninguno durante 60 min y luego 600 por minuto.
+      - series: >-
+          http_server_requests_seconds_count{job="keycloak", method="POST", outcome="SERVER_ERROR",
+          status="500", uri="/realms/{realm}/protocol/{protocol}/token"}
+        values: "0x60 600+600x30"
+      - series: >-
+          http_server_requests_seconds_bucket{job="keycloak", method="POST", outcome="SERVER_ERROR",
+          status="500", uri="/realms/{realm}/protocol/{protocol}/token", le="0.25"}
+        values: "0x60 600+600x30"
+      # Tráfico de /metrics: no debe contar en el SLI.
+      - series: >-
+          http_server_requests_seconds_count{job="keycloak", method="GET", outcome="SERVER_ERROR",
+          status="500", uri="/metrics"}
+        values: "0+1000x90"
+      - series: 'up{job="keycloak"}'
+        values: "1x90"
+      - series: 'pg_up{job="postgres"}'
+        values: "1x60 0x30"
+
+    promql_expr_test:
+      # Antes de la falla: 0 % de errores y presupuesto intacto (los 5xx de /metrics no cuentan).
+      - expr: keycloak:sli_disponibilidad:error_ratio_rate5m
+        eval_time: 59m
+        exp_samples:
+          - labels: "keycloak:sli_disponibilidad:error_ratio_rate5m"
+            value: 0
+      - expr: keycloak:slo_disponibilidad:presupuesto_restante
+        eval_time: 59m
+        exp_samples:
+          - labels: "keycloak:slo_disponibilidad:presupuesto_restante"
+            value: 1
+      # 10 minutos después de la falla todo es error en la ventana corta.
+      - expr: keycloak:sli_disponibilidad:error_ratio_rate5m
+        eval_time: 70m
+        exp_samples:
+          - labels: "keycloak:sli_disponibilidad:error_ratio_rate5m"
+            value: 1
+
+    alert_rule_test:
+      # Sistema sano: ninguna alerta.
+      - eval_time: 59m
+        alertname: KeycloakDisponibilidadBurnRateAlto
+        exp_alerts: []
+      - eval_time: 59m
+        alertname: PostgreSQLCaido
+        exp_alerts: []
+      # 3 minutos después de la falla aún no se cumple la ventana larga de 1 h: sin alerta.
+      - eval_time: 63m
+        alertname: KeycloakDisponibilidadBurnRateAlto
+        exp_alerts: []
+      # 10 minutos después: burn rate > 14.4x en 1 h y en 5 m -> alerta crítica.
+      - eval_time: 70m
+        alertname: KeycloakDisponibilidadBurnRateAlto
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              slo: disponibilidad
+            exp_annotations:
+              summary: "Keycloak está consumiendo rápido el presupuesto de error de disponibilidad"
+              description: >-
+                Más del 7.2 % (1 h) o del 3 % (6 h) de las peticiones a /realms/* terminan en 5xx.
+                A este ritmo el presupuesto mensual (0.5 %) se agota en horas.
+              runbook_url: >-
+                https://github.com/jdcarranzas/devops-grupo-3/blob/main/observability/runbooks/RB-01-errores-5xx.md
+              dashboard: "http://localhost:3000/d/keycloak-slo"
+      - eval_time: 70m
+        alertname: PostgreSQLCaido
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              job: postgres
+            exp_annotations:
+              summary: "PostgreSQL (persistencia de Keycloak) no acepta conexiones"
+              description: "postgres_exporter reporta pg_up = 0: Keycloak no puede leer ni escribir datos."
+              runbook_url: >-
+                https://github.com/jdcarranzas/devops-grupo-3/blob/main/observability/runbooks/RB-01-errores-5xx.md
+
+  # ---------------------------------------------------------------------------
+  # Escenario 2: saturación. Desde el inicio solo 1 de cada 6 peticiones responde
+  # en <= 250 ms (83 % lentas), sin errores 5xx.
+  # ---------------------------------------------------------------------------
+  - interval: 1m
+    input_series:
+      - series: >-
+          http_server_requests_seconds_count{job="keycloak", method="POST", outcome="SUCCESS",
+          status="200", uri="/realms/{realm}/protocol/{protocol}/token"}
+        values: "0+600x30"
+      - series: >-
+          http_server_requests_seconds_bucket{job="keycloak", method="POST", outcome="SUCCESS",
+          status="200", uri="/realms/{realm}/protocol/{protocol}/token", le="0.25"}
+        values: "0+100x30"
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: KeycloakDisponibilidadBurnRateAlto
+        exp_alerts: []
+      - eval_time: 20m
+        alertname: KeycloakLatenciaBurnRateAlto
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              slo: latencia
+            exp_annotations:
+              summary: "Keycloak está consumiendo rápido el presupuesto de error de latencia"
+              description: >-
+                Más del 72 % (1 h) o del 30 % (6 h) de las peticiones a /realms/* tardan más de 250 ms.
+              runbook_url: >-
+                https://github.com/jdcarranzas/devops-grupo-3/blob/main/observability/runbooks/RB-02-latencia.md
+              dashboard: "http://localhost:3000/d/keycloak-slo"

@@ -1,0 +1,135 @@
+# =============================================================================
+# Pila de observabilidad de Keycloak (Entregable 3)
+#
+#   Prometheus  : recolecta métricas y evalúa las reglas de SLO y alertas
+#   Alertmanager: agrupa y enruta las alertas
+#   Grafana     : dashboard de Golden Signals, SLOs y Error Budget
+#   postgres-exporter : métricas de PostgreSQL
+#   cAdvisor    : CPU / memoria por contenedor (saturación)
+#   k6 (perfil "carga"): generador de tráfico, solo se ejecuta bajo demanda
+#
+# Se une a la red "backend" del sistema (docker-compose.yml de la raíz), así que
+# primero hay que levantar Keycloak + PostgreSQL. Desde la raíz del repositorio:
+#
+#   docker compose up -d --build
+#   docker compose --env-file .env -f observability/docker-compose.yml up -d
+#
+# Interfaces (solo en localhost):
+#   Grafana      http://localhost:3000   (admin / GRAFANA_ADMIN_PASSWORD del .env)
+#   Prometheus   http://localhost:9090
+#   Alertmanager http://localhost:9093
+# =============================================================================
+name: keycloak-observability
+
+services:
+  prometheus:
+    image: prom/prometheus:v3.5.0
+    container_name: obs-prometheus
+    restart: unless-stopped
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      # La ventana del SLO es de 30 días: se guardan 35 para poder calcularla completa.
+      - --storage.tsdb.retention.time=35d
+      - --web.enable-lifecycle
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./prometheus/rules:/etc/prometheus/rules:ro
+      - promdata:/prometheus
+    ports:
+      - "127.0.0.1:9090:9090"
+    networks:
+      - monitoring
+      - keycloak-backend
+
+  alertmanager:
+    image: prom/alertmanager:v0.28.1
+    container_name: obs-alertmanager
+    restart: unless-stopped
+    command:
+      - --config.file=/etc/alertmanager/alertmanager.yml
+      - --storage.path=/alertmanager
+    volumes:
+      - ./alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+    ports:
+      - "127.0.0.1:9093:9093"
+    networks:
+      - monitoring
+
+  grafana:
+    image: grafana/grafana:11.6.0
+    container_name: obs-grafana
+    restart: unless-stopped
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?Defina GRAFANA_ADMIN_PASSWORD en .env}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      # El dashboard de SLOs se abre como página de inicio.
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /var/lib/grafana/dashboards/keycloak-slo.json
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafanadata:/var/lib/grafana
+    ports:
+      - "127.0.0.1:3000:3000"
+    depends_on:
+      - prometheus
+    networks:
+      - monitoring
+
+  postgres-exporter:
+    image: quay.io/prometheuscommunity/postgres-exporter:v0.17.1
+    container_name: obs-postgres-exporter
+    restart: unless-stopped
+    environment:
+      DATA_SOURCE_URI: kc-postgres:5432/${POSTGRES_DB}?sslmode=disable
+      DATA_SOURCE_USER: ${POSTGRES_USER}
+      DATA_SOURCE_PASS: ${POSTGRES_PASSWORD}
+    networks:
+      - monitoring
+      - keycloak-backend
+
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:v0.49.1
+    container_name: obs-cadvisor
+    restart: unless-stopped
+    privileged: true
+    devices:
+      - /dev/kmsg
+    command:
+      - --docker_only=true
+      - --housekeeping_interval=15s
+      - --store_container_labels=false
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+      - /dev/disk/:/dev/disk:ro
+    networks:
+      - monitoring
+
+  # Generador de carga: no arranca con "up", se ejecuta con "run" (ver README).
+  k6:
+    image: grafana/k6:1.3.0
+    profiles: ["carga"]
+    environment:
+      KC_URL: http://kc-app:8080
+      KC_BOOTSTRAP_ADMIN_USERNAME: ${KC_BOOTSTRAP_ADMIN_USERNAME}
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KC_BOOTSTRAP_ADMIN_PASSWORD}
+    volumes:
+      - ./k6:/scripts:ro
+    networks:
+      - keycloak-backend
+
+volumes:
+  promdata:
+  grafanadata:
+
+networks:
+  monitoring:
+  # Red creada por el docker-compose.yml de la raíz (proyecto "keycloak-devops").
+  keycloak-backend:
+    external: true
+    name: keycloak-devops_backend

@@ -54,6 +54,9 @@ resource "docker_container" "keycloak" {
     "KC_LOG_LEVEL=${var.log_level}",
     "KC_BOOTSTRAP_ADMIN_USERNAME=${var.admin_user}",
     "KC_BOOTSTRAP_ADMIN_PASSWORD=${var.admin_password}",
+    # Observabilidad: histograma de latencia con bucket exacto en 250 ms (umbral del SLO).
+    "KC_HTTP_METRICS_HISTOGRAMS_ENABLED=true",
+    "KC_HTTP_METRICS_SLOS=100,250,500,1000",
   ]
 
   networks_advanced {

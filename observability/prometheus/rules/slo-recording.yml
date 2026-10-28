@@ -1,0 +1,221 @@
+# =============================================================================
+# Recording rules: SLIs de Keycloak precalculados en varias ventanas de tiempo
+#
+#   Alcance de los SLIs: peticiones a los endpoints públicos del IdP, es decir
+#   todo lo que cuelga de /realms/{realm}/... (token, login, logout, userinfo,
+#   discovery, JWKS). Se excluyen /health, /metrics y la API de administración,
+#   porque no son tráfico de usuarios finales.
+#
+#   SLI 1 - Disponibilidad: fracción de peticiones SIN error de servidor (5xx).
+#   SLI 2 - Latencia      : fracción de peticiones atendidas en <= 250 ms
+#                           (bucket le="0.25", habilitado con KC_HTTP_METRICS_SLOS).
+#
+#   Cada regla guarda la "tasa de error" del SLI (lo que consume presupuesto):
+#     keycloak:sli_disponibilidad:error_ratio_rate<ventana>  = 5xx / total
+#     keycloak:sli_latencia:error_ratio_rate<ventana>        = lentas / total
+# =============================================================================
+groups:
+  - name: keycloak-sli-trafico
+    interval: 15s
+    rules:
+      - record: keycloak:sli_peticiones:rate5m
+        expr: |
+          sum(rate(http_server_requests_seconds_count{job="keycloak", uri=~"/realms/.+"}[5m]))
+      - record: keycloak:sli_peticiones:rate1h
+        expr: |
+          sum(rate(http_server_requests_seconds_count{job="keycloak", uri=~"/realms/.+"}[1h]))
+
+  - name: keycloak-sli-ventanas-cortas
+    interval: 15s
+    rules:
+      # Disponibilidad (5m). "or vector(0)": si no hubo errores la serie existe y vale 0.
+      - record: keycloak:sli_disponibilidad:error_ratio_rate5m
+        expr: |
+          (
+            sum(rate(http_server_requests_seconds_count{
+              job="keycloak", uri=~"/realms/.+", outcome="SERVER_ERROR"}[5m]))
+            or vector(0)
+          )
+          /
+          sum(rate(http_server_requests_seconds_count{job="keycloak", uri=~"/realms/.+"}[5m]))
+      # Latencia (5m): 1 - (peticiones <= 250 ms / total)
+      - record: keycloak:sli_latencia:error_ratio_rate5m
+        expr: |
+          1 - (
+            sum(rate(http_server_requests_seconds_bucket{
+              job="keycloak", uri=~"/realms/.+", le="0.25"}[5m]))
+            /
+            sum(rate(http_server_requests_seconds_count{job="keycloak", uri=~"/realms/.+"}[5m]))
+          )
+      # Disponibilidad (30m). "or vector(0)": si no hubo errores la serie existe y vale 0.
+      - record: keycloak:sli_disponibilidad:error_ratio_rate30m
+        expr: |
+          (
+            sum(rate(http_server_requests_seconds_count{
+              job="keycloak", uri=~"/realms/.+", outcome="SERVER_ERROR"}[30m]))
+            or vector(0)
+          )
+          /
+          sum(rate(http_server_requests_seconds_count{job="keycloak", uri=~"/realms/.+"}[30m]))
+      # Latencia (30m): 1 - (peticiones <= 250 ms / total)
+      - record: keycloak:sli_latencia:error_ratio_rate30m
+        expr: |
+          1 - (
+            sum(rate(http_server_requests_seconds_bucket{
+              job="keycloak", uri=~"/realms/.+", le="0.25"}[30m]))
+            /
+            sum(rate(http_server_requests_seconds_count{job="keycloak", uri=~"/realms/.+"}[30m]))
+          )
+      # Disponibilidad (1h). "or vector(0)": si no hubo errores la serie existe y vale 0.
+      - record: keycloak:sli_disponibilidad:error_ratio_rate1h
+        expr: |
+          (
+            sum(rate(http_server_requests_seconds_count{
+              job="keycloak", uri=~"/realms/.+", outcome="SERVER_ERROR"}[1h]))
+            or vector(0)
+          )
+          /
+          sum(rate(http_server_requests_seconds_count{job="keycloak", uri=~"/realms/.+"}[1h]))
+      # Latencia (1h): 1 - (peticiones <= 250 ms / total)
+      - record: keycloak:sli_latencia:error_ratio_rate1h
+        expr: |
+          1 - (
+            sum(rate(http_server_requests_seconds_bucket{
+              job="keycloak", uri=~"/realms/.+", le="0.25"}[1h]))
+            /
+            sum(rate(http_server_requests_seconds_count{job="keycloak", uri=~"/realms/.+"}[1h]))
+          )
+      # Disponibilidad (2h). "or vector(0)": si no hubo errores la serie existe y vale 0.
+      - record: keycloak:sli_disponibilidad:error_ratio_rate2h
+        expr: |
+          (
+            sum(rate(http_server_requests_seconds_count{
+              job="keycloak", uri=~"/realms/.+", outcome="SERVER_ERROR"}[2h]))
+            or vector(0)
+          )
+          /
+          sum(rate(http_server_requests_seconds_count{job="keycloak", uri=~"/realms/.+"}[2h]))
+      # Latencia (2h): 1 - (peticiones <= 250 ms / total)
+      - record: keycloak:sli_latencia:error_ratio_rate2h
+        expr: |
+          1 - (
+            sum(rate(http_server_requests_seconds_bucket{
+              job="keycloak", uri=~"/realms/.+", le="0.25"}[2h]))
+            /
+            sum(rate(http_server_requests_seconds_count{job="keycloak", uri=~"/realms/.+"}[2h]))
+          )
+      # Disponibilidad (6h). "or vector(0)": si no hubo errores la serie existe y vale 0.
+      - record: keycloak:sli_disponibilidad:error_ratio_rate6h
+        expr: |
+          (
+            sum(rate(http_server_requests_seconds_count{
+              job="keycloak", uri=~"/realms/.+", outcome="SERVER_ERROR"}[6h]))
+            or vector(0)
+          )
+          /
+          sum(rate(http_server_requests_seconds_count{job="keycloak", uri=~"/realms/.+"}[6h]))
+      # Latencia (6h): 1 - (peticiones <= 250 ms / total)
+      - record: keycloak:sli_latencia:error_ratio_rate6h
+        expr: |
+          1 - (
+            sum(rate(http_server_requests_seconds_bucket{
+              job="keycloak", uri=~"/realms/.+", le="0.25"}[6h]))
+            /
+            sum(rate(http_server_requests_seconds_count{job="keycloak", uri=~"/realms/.+"}[6h]))
+          )
+
+  - name: keycloak-sli-ventanas-largas
+    interval: 1m
+    rules:
+      # Disponibilidad (1d). "or vector(0)": si no hubo errores la serie existe y vale 0.
+      - record: keycloak:sli_disponibilidad:error_ratio_rate1d
+        expr: |
+          (
+            sum(rate(http_server_requests_seconds_count{
+              job="keycloak", uri=~"/realms/.+", outcome="SERVER_ERROR"}[1d]))
+            or vector(0)
+          )
+          /
+          sum(rate(http_server_requests_seconds_count{job="keycloak", uri=~"/realms/.+"}[1d]))
+      # Latencia (1d): 1 - (peticiones <= 250 ms / total)
+      - record: keycloak:sli_latencia:error_ratio_rate1d
+        expr: |
+          1 - (
+            sum(rate(http_server_requests_seconds_bucket{
+              job="keycloak", uri=~"/realms/.+", le="0.25"}[1d]))
+            /
+            sum(rate(http_server_requests_seconds_count{job="keycloak", uri=~"/realms/.+"}[1d]))
+          )
+      # Disponibilidad (3d). "or vector(0)": si no hubo errores la serie existe y vale 0.
+      - record: keycloak:sli_disponibilidad:error_ratio_rate3d
+        expr: |
+          (
+            sum(rate(http_server_requests_seconds_count{
+              job="keycloak", uri=~"/realms/.+", outcome="SERVER_ERROR"}[3d]))
+            or vector(0)
+          )
+          /
+          sum(rate(http_server_requests_seconds_count{job="keycloak", uri=~"/realms/.+"}[3d]))
+      # Latencia (3d): 1 - (peticiones <= 250 ms / total)
+      - record: keycloak:sli_latencia:error_ratio_rate3d
+        expr: |
+          1 - (
+            sum(rate(http_server_requests_seconds_bucket{
+              job="keycloak", uri=~"/realms/.+", le="0.25"}[3d]))
+            /
+            sum(rate(http_server_requests_seconds_count{job="keycloak", uri=~"/realms/.+"}[3d]))
+          )
+      # Disponibilidad (30d). "or vector(0)": si no hubo errores la serie existe y vale 0.
+      - record: keycloak:sli_disponibilidad:error_ratio_rate30d
+        expr: |
+          (
+            sum(rate(http_server_requests_seconds_count{
+              job="keycloak", uri=~"/realms/.+", outcome="SERVER_ERROR"}[30d]))
+            or vector(0)
+          )
+          /
+          sum(rate(http_server_requests_seconds_count{job="keycloak", uri=~"/realms/.+"}[30d]))
+      # Latencia (30d): 1 - (peticiones <= 250 ms / total)
+      - record: keycloak:sli_latencia:error_ratio_rate30d
+        expr: |
+          1 - (
+            sum(rate(http_server_requests_seconds_bucket{
+              job="keycloak", uri=~"/realms/.+", le="0.25"}[30d]))
+            /
+            sum(rate(http_server_requests_seconds_count{job="keycloak", uri=~"/realms/.+"}[30d]))
+          )
+
+  # ---------------------------------------------------------------------------
+  # Objetivos (SLO), presupuesto de error restante y burn rate
+  #   presupuesto_restante = 1 - (tasa_error_30d / (1 - SLO))
+  #   burn_rate            = tasa_error_ventana / (1 - SLO)
+  #     burn rate 1  -> el presupuesto se agota justo a los 30 días
+  #     burn rate 14.4 -> se consume el 2 % del presupuesto mensual en 1 hora
+  # ---------------------------------------------------------------------------
+  - name: keycloak-slo
+    interval: 1m
+    rules:
+      - record: keycloak:slo_disponibilidad:objetivo
+        expr: vector(0.995)
+      - record: keycloak:slo_latencia:objetivo
+        expr: vector(0.95)
+      - record: keycloak:slo_disponibilidad:presupuesto_restante
+        expr: 1 - (keycloak:sli_disponibilidad:error_ratio_rate30d / 0.005)
+      - record: keycloak:slo_disponibilidad:burn_rate5m
+        expr: keycloak:sli_disponibilidad:error_ratio_rate5m / 0.005
+      - record: keycloak:slo_disponibilidad:burn_rate1h
+        expr: keycloak:sli_disponibilidad:error_ratio_rate1h / 0.005
+      - record: keycloak:slo_disponibilidad:burn_rate6h
+        expr: keycloak:sli_disponibilidad:error_ratio_rate6h / 0.005
+      - record: keycloak:slo_disponibilidad:burn_rate1d
+        expr: keycloak:sli_disponibilidad:error_ratio_rate1d / 0.005
+      - record: keycloak:slo_latencia:presupuesto_restante
+        expr: 1 - (keycloak:sli_latencia:error_ratio_rate30d / 0.05)
+      - record: keycloak:slo_latencia:burn_rate5m
+        expr: keycloak:sli_latencia:error_ratio_rate5m / 0.05
+      - record: keycloak:slo_latencia:burn_rate1h
+        expr: keycloak:sli_latencia:error_ratio_rate1h / 0.05
+      - record: keycloak:slo_latencia:burn_rate6h
+        expr: keycloak:sli_latencia:error_ratio_rate6h / 0.05
+      - record: keycloak:slo_latencia:burn_rate1d
+        expr: keycloak:sli_latencia:error_ratio_rate1d / 0.05
