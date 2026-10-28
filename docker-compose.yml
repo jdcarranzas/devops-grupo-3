@@ -39,6 +39,10 @@ services:
       # Administrador inicial
       KC_BOOTSTRAP_ADMIN_USERNAME: ${KC_BOOTSTRAP_ADMIN_USERNAME}
       KC_BOOTSTRAP_ADMIN_PASSWORD: ${KC_BOOTSTRAP_ADMIN_PASSWORD}
+      # Observabilidad (Entregable 3): histograma de latencia HTTP con un bucket
+      # exacto en 250 ms, que es el umbral del SLO de latencia.
+      KC_HTTP_METRICS_HISTOGRAMS_ENABLED: "true"
+      KC_HTTP_METRICS_SLOS: "100,250,500,1000"
     ports:
       - "8080:8080"
       - "9000:9000"

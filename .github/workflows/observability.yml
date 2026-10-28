@@ -1,0 +1,70 @@
+# =============================================================================
+# Pipeline de Observabilidad (Entregable 3)
+#   Valida los manifiestos de monitoreo antes de que lleguen a main:
+#   1. promtool check config/rules : sintaxis de Prometheus y de las reglas
+#   2. promtool test rules         : pruebas unitarias de SLIs y alertas de burn rate
+#   3. amtool check-config         : configuración de Alertmanager
+#   4. JSON del dashboard          : que Grafana lo pueda cargar
+#   5. docker compose config       : el compose de observabilidad es válido
+# =============================================================================
+name: Observability
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "observability/**"
+      - ".github/workflows/observability.yml"
+  push:
+    paths:
+      - "observability/**"
+      - ".github/workflows/observability.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  PROMETHEUS_IMAGE: prom/prometheus:v3.5.0
+  ALERTMANAGER_IMAGE: prom/alertmanager:v0.28.1
+
+jobs:
+  validate:
+    name: Validar Prometheus, Alertmanager y Grafana
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: promtool check config
+        run: |
+          docker run --rm -v "$PWD/observability/prometheus:/etc/prometheus:ro" \
+            --entrypoint promtool "$PROMETHEUS_IMAGE" check config --syntax-only /etc/prometheus/prometheus.yml
+
+      - name: promtool check rules
+        run: |
+          docker run --rm -v "$PWD/observability/prometheus:/p:ro" \
+            --entrypoint promtool "$PROMETHEUS_IMAGE" check rules /p/rules/slo-recording.yml /p/rules/slo-alertas.yml
+
+      - name: promtool test rules (pruebas unitarias de alertas)
+        run: |
+          docker run --rm -v "$PWD/observability/prometheus:/p:ro" \
+            --entrypoint promtool "$PROMETHEUS_IMAGE" test rules /p/tests/slo-alertas.test.yml
+
+      - name: amtool check-config
+        run: |
+          docker run --rm -v "$PWD/observability/alertmanager:/a:ro" \
+            --entrypoint amtool "$ALERTMANAGER_IMAGE" check-config /a/alertmanager.yml
+
+      - name: Validar JSON de dashboards
+        run: |
+          for f in observability/grafana/dashboards/*.json; do
+            jq -e '.uid and .title and (.panels | length > 0)' "$f" > /dev/null
+            echo "OK $f"
+          done
+
+      - name: Validar docker-compose de observabilidad
+        run: |
+          cp .env.example .env
+          docker compose --env-file .env -f observability/docker-compose.yml config --quiet
+          echo "observability/docker-compose.yml válido"

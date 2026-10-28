@@ -1,0 +1,172 @@
+# =============================================================================
+# Alertas de Keycloak basadas en el consumo del presupuesto de error (burn rate)
+#
+# Esquema "multiwindow, multi-burn-rate" del Google SRE Workbook (cap. 5):
+#   cada alerta exige que la tasa de error supere el umbral en una ventana LARGA
+#   (da significancia: no alerta por un pico aislado) Y en una ventana CORTA
+#   (garantiza que el problema sigue ocurriendo: la alerta se apaga rápido
+#   cuando se mitiga).
+#
+#   Severidad | Burn rate | Ventana larga / corta | Presupuesto consumido
+#   ----------+-----------+-----------------------+-----------------------
+#   critical  |   14.4x   |      1h  /  5m        |  2 % en 1 hora
+#   critical  |    6x     |      6h  /  30m       |  5 % en 6 horas
+#   warning   |    3x     |      1d  /  2h        | 10 % en 1 día
+#   warning   |    1x     |      3d  /  6h        | 10 % en 3 días
+#
+#   Umbral sobre la tasa de error = burn rate x (1 - SLO)
+#     Disponibilidad (SLO 99.5 %, presupuesto 0.5 %): 0.072 | 0.03 | 0.015 | 0.005
+#     Latencia       (SLO 95 %,   presupuesto 5 %)  : 0.72  | 0.30 | 0.15  | 0.05
+#
+# No hay alertas estáticas sobre CPU, memoria o latencia puntual: esas señales se
+# ven en el dashboard pero no despiertan a nadie. Las dos únicas alertas que no son
+# de burn rate cubren el caso en que el SLI no se puede calcular (sin métricas).
+# =============================================================================
+groups:
+  - name: keycloak-slo-alertas
+    rules:
+      # ---------------------------- Disponibilidad ----------------------------
+      - alert: KeycloakDisponibilidadBurnRateAlto
+        expr: |
+          (
+              keycloak:sli_disponibilidad:error_ratio_rate1h > (14.4 * 0.005)
+            and
+              keycloak:sli_disponibilidad:error_ratio_rate5m > (14.4 * 0.005)
+          )
+          or
+          (
+              keycloak:sli_disponibilidad:error_ratio_rate6h > (6 * 0.005)
+            and
+              keycloak:sli_disponibilidad:error_ratio_rate30m > (6 * 0.005)
+          )
+        for: 2m
+        labels:
+          severity: critical
+          slo: disponibilidad
+        annotations:
+          summary: "Keycloak está consumiendo rápido el presupuesto de error de disponibilidad"
+          description: >-
+            Más del 7.2 % (1 h) o del 3 % (6 h) de las peticiones a /realms/* terminan en 5xx.
+            A este ritmo el presupuesto mensual (0.5 %) se agota en horas.
+          runbook_url: >-
+            https://github.com/jdcarranzas/devops-grupo-3/blob/main/observability/runbooks/RB-01-errores-5xx.md
+          dashboard: "http://localhost:3000/d/keycloak-slo"
+
+      - alert: KeycloakDisponibilidadBurnRateLento
+        expr: |
+          (
+              keycloak:sli_disponibilidad:error_ratio_rate1d > (3 * 0.005)
+            and
+              keycloak:sli_disponibilidad:error_ratio_rate2h > (3 * 0.005)
+          )
+          or
+          (
+              keycloak:sli_disponibilidad:error_ratio_rate3d > (1 * 0.005)
+            and
+              keycloak:sli_disponibilidad:error_ratio_rate6h > (1 * 0.005)
+          )
+        for: 15m
+        labels:
+          severity: warning
+          slo: disponibilidad
+        annotations:
+          summary: "Degradación sostenida del SLO de disponibilidad de Keycloak"
+          description: >-
+            La tasa de errores 5xx consume el presupuesto más rápido de lo sostenible
+            (3x en 1 día o 1x en 3 días). Crear ticket y revisar en horario laboral.
+          runbook_url: >-
+            https://github.com/jdcarranzas/devops-grupo-3/blob/main/observability/runbooks/RB-01-errores-5xx.md
+
+      # ------------------------------- Latencia -------------------------------
+      - alert: KeycloakLatenciaBurnRateAlto
+        expr: |
+          (
+              keycloak:sli_latencia:error_ratio_rate1h > (14.4 * 0.05)
+            and
+              keycloak:sli_latencia:error_ratio_rate5m > (14.4 * 0.05)
+          )
+          or
+          (
+              keycloak:sli_latencia:error_ratio_rate6h > (6 * 0.05)
+            and
+              keycloak:sli_latencia:error_ratio_rate30m > (6 * 0.05)
+          )
+        for: 2m
+        labels:
+          severity: critical
+          slo: latencia
+        annotations:
+          summary: "Keycloak está consumiendo rápido el presupuesto de error de latencia"
+          description: >-
+            Más del 72 % (1 h) o del 30 % (6 h) de las peticiones a /realms/* tardan más de 250 ms.
+          runbook_url: >-
+            https://github.com/jdcarranzas/devops-grupo-3/blob/main/observability/runbooks/RB-02-latencia.md
+          dashboard: "http://localhost:3000/d/keycloak-slo"
+
+      - alert: KeycloakLatenciaBurnRateLento
+        expr: |
+          (
+              keycloak:sli_latencia:error_ratio_rate1d > (3 * 0.05)
+            and
+              keycloak:sli_latencia:error_ratio_rate2h > (3 * 0.05)
+          )
+          or
+          (
+              keycloak:sli_latencia:error_ratio_rate3d > (1 * 0.05)
+            and
+              keycloak:sli_latencia:error_ratio_rate6h > (1 * 0.05)
+          )
+        for: 15m
+        labels:
+          severity: warning
+          slo: latencia
+        annotations:
+          summary: "Degradación sostenida del SLO de latencia de Keycloak"
+          description: >-
+            Más del 15 % (1 día) o del 5 % (3 días) de las peticiones superan 250 ms.
+          runbook_url: >-
+            https://github.com/jdcarranzas/devops-grupo-3/blob/main/observability/runbooks/RB-02-latencia.md
+
+      # ------------------------- Política de presupuesto ------------------------
+      - alert: KeycloakPresupuestoErrorAgotado
+        expr: |
+          keycloak:slo_disponibilidad:presupuesto_restante <= 0
+          or
+          keycloak:slo_latencia:presupuesto_restante <= 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Presupuesto de error agotado: aplicar congelamiento de cambios"
+          description: >-
+            El presupuesto de error de 30 días se agotó. Según la Error Budget Policy solo se
+            despliegan correcciones de confiabilidad o seguridad hasta recuperar saldo.
+
+  # ---------------------------------------------------------------------------
+  # Sin métricas no hay SLI: si Keycloak o el exporter de PostgreSQL dejan de
+  # responder, el burn rate no se puede calcular (0/0). Estas dos alertas cubren
+  # ese punto ciego y son de síntoma (servicio caído), no de causa.
+  # ---------------------------------------------------------------------------
+  - name: keycloak-disponibilidad-objetivos
+    rules:
+      - alert: KeycloakNoResponde
+        expr: up{job="keycloak"} == 0 or absent(up{job="keycloak"})
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Prometheus no puede obtener métricas de Keycloak"
+          description: "El endpoint kc-app:9000/metrics no responde desde hace más de 2 minutos."
+          runbook_url: >-
+            https://github.com/jdcarranzas/devops-grupo-3/blob/main/observability/runbooks/RB-01-errores-5xx.md
+
+      - alert: PostgreSQLCaido
+        expr: pg_up{job="postgres"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "PostgreSQL (persistencia de Keycloak) no acepta conexiones"
+          description: "postgres_exporter reporta pg_up = 0: Keycloak no puede leer ni escribir datos."
+          runbook_url: >-
+            https://github.com/jdcarranzas/devops-grupo-3/blob/main/observability/runbooks/RB-01-errores-5xx.md

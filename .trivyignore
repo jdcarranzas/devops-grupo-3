@@ -2,3 +2,14 @@
 # Toda excepción debe documentar: motivo, responsable y fecha de revisión.
 # Ejemplo:
 # CVE-2026-00000  # No explotable: el componente no se usa. Revisar 2026-11-01 (equipo 3)
+
+# CVE-2026-114406 (ca-certificates, CRITICAL) - Desconfianza de 8 CA intermedias de eMudhra con
+#   llaves privadas débiles (divulgado el 2026-10-17). Riesgo: suplantación TLS (MITM) en conexiones
+#   SALIENTES que confíen en esas CA. Viene de la imagen base oficial quay.io/keycloak/keycloak:26.8.0
+#   (ubi9-micro, sin gestor de paquetes); el paquete corregido es 2026.2.92_v9.0.319-90.3.el9_8.
+#   No explotable en nuestro despliegue: Keycloak no abre conexiones TLS salientes (sin federación
+#   de IdP externos, SMTP ni LDAP; la BD va por red interna sin TLS). Además Mozilla/Chrome ya
+#   bloquean esas CA en los clientes.
+#   Acción: subir KC_VERSION en cuanto Keycloak publique una imagen con ca-certificates corregido y
+#   eliminar esta línea. Responsable: equipo 3. Revisar: 2026-11-11.
+CVE-2026-114406
