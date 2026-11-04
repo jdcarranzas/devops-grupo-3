@@ -36,7 +36,9 @@ main ──► CI: build + Trivy + push ghcr.io/...:sha-<commit>
 ```
 
 Mientras una réplica se reemplaza, la otra atiende el 100 % del tráfico; por eso el despliegue no tiene pérdida
-de disponibilidad. Si la imagen no cambió de contenido (mismo *digest*), Terraform no recrea las réplicas.
+de disponibilidad. Cada commit en `main` produce una imagen distinta aunque el `Dockerfile` no cambie (el CI le
+pone etiquetas OCI con el commit y la fecha), así que **cada merge hace un rolling update completo** de las dos
+réplicas. Primer despliegue automático medido: ~1 min en total, con las réplicas reemplazadas una tras otra.
 
 **Rollback:** *Actions → Deploy → Run workflow* con `image_tag = sha-<commit anterior>`.
 

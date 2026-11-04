@@ -195,6 +195,36 @@ groups:
           runbook_url: >-
             https://github.com/jdcarranzas/devops-grupo-3/blob/main/observability/runbooks/RB-01-errores-5xx.md
 
+      # 5xx entregados al usuario por el balanceador (503 por cola llena, 504 por timeout,
+      # 503 sin réplicas). Keycloak no ve estas respuestas: no llegan a la aplicación.
+      # Mismo umbral multiventana que el SLO de disponibilidad (14.4x en 1 h y 5 m).
+      - alert: BalanceadorBurnRateAlto
+        expr: |
+          (
+              sum(rate(haproxy_frontend_http_responses_total{proxy="fe_keycloak", code="5xx"}[1h]))
+            /
+              sum(rate(haproxy_frontend_http_responses_total{proxy="fe_keycloak"}[1h]))
+            > (14.4 * 0.005)
+          )
+          and
+          (
+              sum(rate(haproxy_frontend_http_responses_total{proxy="fe_keycloak", code="5xx"}[5m]))
+            /
+              sum(rate(haproxy_frontend_http_responses_total{proxy="fe_keycloak"}[5m]))
+            > (14.4 * 0.005)
+          )
+        for: 2m
+        labels:
+          severity: critical
+          slo: disponibilidad
+        annotations:
+          summary: "El balanceador entrega muchos 5xx que Keycloak no registra"
+          description: >-
+            Más del 7.2 % de las respuestas del balanceador son 5xx (cola llena, timeout o sin réplicas).
+            Revisar saturación de las réplicas (RB-02) y el estado de HAProxy en /stats.
+          runbook_url: >-
+            https://github.com/jdcarranzas/devops-grupo-3/blob/main/observability/runbooks/RB-02-latencia.md
+
       - alert: PostgreSQLCaido
         expr: pg_up{job="postgres"} == 0
         for: 1m

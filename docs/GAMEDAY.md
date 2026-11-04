@@ -113,6 +113,7 @@ explicar cualquier bloque.
 | ¿Cómo garantizan que no hay credenciales en el código? | `TF_VAR_*` / secrets del environment, `sensitive = true`, Checkov `secrets`, política OPA de claves débiles, estado fuera del repo |
 | ¿Qué cambia para llevarlo a la nube? | OIDC en el pipeline, estado remoto cifrado, ALB, ECS en 2 AZ, RDS Multi-AZ, Secrets Manager (DESPLIEGUE.md §5) |
 | ¿Por qué el balanceador usa `/health/live` y no `/health/ready`? | Lo encontramos en el ensayo: con readiness, la caída de la BD (compartida) sacaba a las dos réplicas, HAProxy respondía 503 a todo y el SLI quedaba ciego. Sacar réplicas solo sirve si la falla es de la réplica |
+| ¿Qué son los ERROR rojos en los logs durante el despliegue? | `org.jgroups.protocols.TCP ... failed sending graceful close` con `[Error Occurred After Shutdown]`: al apagarse una réplica, su compañera no alcanza a cerrar ordenadamente la conexión del clúster (puerto 7800). Son esperables en cada rolling update; no hay 5xx ni pérdida de sesiones. De hecho, sus horas muestran la secuencia: réplica 1 se apaga y vuelve, y solo después la 2 |
 | ¿Qué es lo más débil de la arquitectura? | PostgreSQL (SPOF) y el host único, incluido el monitoreo. Está en el Pre-Mortem con su plan |
 
 ## 4. Después de la sesión
