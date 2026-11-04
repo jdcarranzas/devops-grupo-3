@@ -1,6 +1,6 @@
 # Infraestructura como Código · Terraform
 
-Aprovisiona Keycloak + PostgreSQL de forma declarativa sobre **Docker** (entorno
+Aprovisiona Keycloak (2 réplicas en clúster detrás de HAProxy) + PostgreSQL de forma declarativa sobre **Docker** (entorno
 virtualizado local) con el provider [`kreuzwerker/docker`](https://registry.terraform.io/providers/kreuzwerker/docker/latest).
 Reemplaza la ejecución manual con `docker compose` por un despliegue idempotente,
 modular y validado automáticamente en GitHub Actions.
@@ -12,7 +12,7 @@ terraform/
 ├── versions.tf            # versión de Terraform, provider y backend (estado local)
 ├── providers.tf           # conexión al daemon de Docker
 ├── locals.tf              # prefijo de nombres y etiquetas comunes
-├── main.tf                # módulo raíz: une network -> database -> keycloak
+├── main.tf                # módulo raíz: network -> database -> keycloak -> loadbalancer
 ├── variables.tf           # variables de entrada (con tipos y validaciones)
 ├── outputs.tf             # salidas (URLs, nombres, redes) sin secretos
 ├── environments/
@@ -21,7 +21,8 @@ terraform/
 ├── modules/
 │   ├── network/           # redes frontend y backend (interna) con subredes fijas
 │   ├── database/          # PERSISTENCIA: volumen + contenedor PostgreSQL
-│   └── keycloak/          # CÓMPUTO: imagen + contenedor Keycloak
+│   ├── keycloak/          # CÓMPUTO: imagen + N réplicas de Keycloak (clúster jdbc-ping)
+│   └── loadbalancer/      # HAProxy: único punto de entrada, health checks y reintentos
 ├── policy/
 │   ├── docker.rego        # políticas OPA (conftest) evaluadas sobre el plan
 │   └── docker_test.rego   # pruebas unitarias de las políticas
@@ -68,10 +69,12 @@ Ambos ambientes pueden convivir en el mismo host (nombres, subredes y puertos di
 | | dev | prod |
 |---|---|---|
 | Imagen Keycloak | construida del `Dockerfile` | `ghcr.io/...:sha-<commit>` publicada por el CI |
-| Keycloak | 1 CPU · 1024 MB | 2 CPU · 2048 MB |
+| Keycloak (por réplica) | 2 réplicas · 1 CPU · 1024 MB | 2 réplicas · 2 CPU · 2048 MB |
+| HAProxy | 0.5 CPU · 256 MB | 0.5 CPU · 256 MB |
 | PostgreSQL | 0.5 CPU · 512 MB | 1 CPU · 1024 MB |
-| URL | http://localhost:8080 | http://localhost:8081 |
-| Health/métricas | http://localhost:9000 | no se publica (solo red interna) |
+| URL (por el balanceador) | http://localhost:8080 | http://localhost:8081 |
+| Estado del balanceador | http://localhost:8404/stats | http://localhost:8405/stats |
+| Health/métricas de Keycloak | solo red interna (Prometheus) | solo red interna (Prometheus) |
 | Subredes | 172.30.10.0/24 · 172.30.11.0/24 | 172.30.20.0/24 · 172.30.21.0/24 |
 
 > La imagen de prod se descarga de GHCR. Si el paquete es privado, primero
@@ -80,11 +83,16 @@ Ambos ambientes pueden convivir en el mismo host (nombres, subredes y puertos di
 Idempotencia: un segundo `terraform apply` sin cambios debe responder
 `No changes. Your infrastructure matches the configuration.`
 
+Despliegue continuo con *rolling update* (una réplica a la vez, sin pérdida de disponibilidad):
+`scripts/deploy.ps1`, que usa el workflow `.github/workflows/deploy.yml`. Ver [docs/DESPLIEGUE.md](../docs/DESPLIEGUE.md).
+
 Destruir: `terraform destroy -var-file=environments/<amb>.tfvars` (borra también el volumen de datos).
 
 ## Estado (`terraform.tfstate`)
 
 - Backend **local** con un **workspace por ambiente** → `terraform.tfstate.d/dev/` y `terraform.tfstate.d/prod/`.
+  El runner de despliegue guarda el estado fuera del repositorio con
+  `terraform init -backend-config="workspace_dir=<carpeta>"` (ver docs/DESPLIEGUE.md).
 - El estado guarda los secretos en texto plano, por eso `*.tfstate*`, los planes y `.terraform/` están en `.gitignore`.
 - Un bloque `check` avisa si el workspace no coincide con `var.environment`.
 - Se recomienda versionar `.terraform.lock.hcl` (lo genera `terraform init`) para fijar el hash exacto del provider.

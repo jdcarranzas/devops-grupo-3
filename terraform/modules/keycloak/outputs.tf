@@ -1,19 +1,14 @@
-output "url" {
-  description = "URL local de Keycloak."
-  value       = "http://localhost:${var.http_port}"
+output "container_names" {
+  description = "Nombres de los contenedores de las réplicas de Keycloak."
+  value       = [for c in docker_container.keycloak : c.name]
 }
 
-output "health_url" {
-  description = "URL de readiness (null si el puerto de gestión no se publica)."
-  value       = var.publish_management_port ? "http://localhost:${var.management_port}/health/ready" : null
-}
-
-output "container_name" {
-  description = "Nombre del contenedor de Keycloak."
-  value       = docker_container.keycloak.name
+output "replica_hosts" {
+  description = "Alias DNS de cada réplica dentro de la red backend (keycloak-1, keycloak-2, ...)."
+  value       = sort([for id in keys(docker_container.keycloak) : "keycloak-${id}"])
 }
 
 output "image_id" {
-  description = "ID de la imagen usada por el contenedor."
+  description = "ID de la imagen usada por las réplicas."
   value       = docker_image.keycloak.image_id
 }

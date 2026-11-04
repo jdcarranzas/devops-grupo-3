@@ -50,7 +50,12 @@ services:
       postgres:
         condition: service_healthy
     networks:
-      - backend
+      backend:
+        # Mismos alias que el despliegue de Terraform, para que la pila de
+        # observabilidad funcione también con este compose de desarrollo
+        # (KC_BACKEND_NETWORK=keycloak-devops_backend). Aquí hay una sola
+        # instancia, así que keycloak-2 aparecerá como caída.
+        aliases: [keycloak-1, keycloak-lb]
     healthcheck:
       # La imagen no trae curl: se consulta /health/ready con /dev/tcp de bash
       test:

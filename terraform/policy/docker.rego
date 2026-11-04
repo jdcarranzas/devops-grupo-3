@@ -39,6 +39,15 @@ deny contains msg if {
 	msg := sprintf("%s: la capa de datos no puede publicar puertos en el host", [rc.address])
 }
 
+# 1b. Solo el balanceador (tier = edge) publica puertos: la capa de cómputo
+#     (réplicas de Keycloak) recibe tráfico únicamente a través de él.
+deny contains msg if {
+	some rc in containers
+	label_value(rc.change.after, "tier") == "compute"
+	count(object.get(rc.change.after, "ports", [])) > 0
+	msg := sprintf("%s: la capa de cómputo no publica puertos; el tráfico entra por el balanceador", [rc.address])
+}
+
 # 2. Los puertos publicados solo se exponen en 127.0.0.1 (no en 0.0.0.0).
 deny contains msg if {
 	some rc in containers

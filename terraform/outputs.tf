@@ -7,18 +7,23 @@ output "environment" {
 }
 
 output "keycloak_url" {
-  description = "URL de Keycloak (consola de administración y endpoints OIDC)."
-  value       = module.keycloak.url
+  description = "URL de Keycloak a través del balanceador (consola de administración y endpoints OIDC)."
+  value       = module.loadbalancer.url
 }
 
-output "keycloak_health_url" {
-  description = "Endpoint de readiness (null si el puerto de gestión no se publica)."
-  value       = module.keycloak.health_url
+output "loadbalancer_stats_url" {
+  description = "Estado de cada réplica en HAProxy (UP, DOWN, MAINT)."
+  value       = module.loadbalancer.stats_url
 }
 
-output "keycloak_container_name" {
-  description = "Nombre del contenedor de Keycloak."
-  value       = module.keycloak.container_name
+output "loadbalancer_container_name" {
+  description = "Nombre del contenedor del balanceador."
+  value       = module.loadbalancer.container_name
+}
+
+output "keycloak_container_names" {
+  description = "Nombres de los contenedores de las réplicas de Keycloak."
+  value       = module.keycloak.container_names
 }
 
 output "database_container_name" {
@@ -40,6 +45,7 @@ output "networks" {
   description = "Redes creadas y sus subredes."
   value = {
     frontend = { name = module.network.frontend_network_name, subnet = var.frontend_subnet }
-    backend  = { name = module.network.backend_network_name, subnet = var.backend_subnet, internal = true }
+    # Red a la que se une la pila de observabilidad (KC_BACKEND_NETWORK en .env).
+    backend = { name = module.network.backend_network_name, subnet = var.backend_subnet, internal = true }
   }
 }

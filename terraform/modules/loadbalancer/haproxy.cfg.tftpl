@@ -1,0 +1,82 @@
+# =============================================================================
+# HAProxy: único punto de entrada a Keycloak (generado por Terraform).
+#   - Health checks ACTIVOS contra /health/live (puerto de gestión 9000) de
+#     cada réplica: una réplica caída o que todavía arranca sale del balanceo en ~4 s.
+#     Se usa liveness y NO readiness a propósito (hallazgo del GameDay): /health/ready
+#     pasa a DOWN cuando cae PostgreSQL, que es una dependencia COMPARTIDA. Con
+#     readiness, una caída de la BD sacaba a las dos réplicas a la vez: HAProxy
+#     respondía 503 a todo (incluso discovery y JWKS, que funcionan desde caché) y el
+#     SLI, medido en Keycloak, dejaba de ver peticiones. Con liveness, las réplicas
+#     siguen atendiendo y los 5xx de /token llegan al SLI y a las alertas.
+#   - Si la conexión a una réplica falla, la petición se reintenta en la otra
+#     (retry-on + redispatch): el usuario no ve el error.
+#   - Afinidad por cookie para los flujos de login con navegador (recomendado por
+#     Keycloak); las llamadas de API sin cookie se reparten en round-robin.
+#   - Resolución DNS dinámica: una réplica recreada cambia de IP y HAProxy la
+#     vuelve a encontrar sin reiniciarse.
+#   - Puerto 8404 (solo red interna / 127.0.0.1): /stats, /metrics (Prometheus)
+#     y /healthz. La API de runtime (127.0.0.1:9999 dentro del contenedor) la usa
+#     el script de despliegue para sacar una réplica del balanceo antes de
+#     reemplazarla.
+# =============================================================================
+global
+    log stdout format raw local0 info
+    stats socket ipv4@127.0.0.1:9999 level admin
+    stats timeout 30s
+
+resolvers docker
+    nameserver dns 127.0.0.11:53
+    resolve_retries 3
+    timeout resolve 1s
+    timeout retry   1s
+    hold other    5s
+    hold refused  5s
+    hold nx       5s
+    hold timeout  5s
+    hold valid    5s
+    hold obsolete 5s
+
+defaults
+    mode http
+    log global
+    option httplog
+    option dontlognull
+    timeout connect 3s
+    timeout client  30s
+    timeout server  30s
+    timeout http-request 10s
+    # Reintentos: ante un fallo de conexión o una respuesta vacía, se reintenta
+    # la petición (hasta 3 veces) en otra réplica.
+    retries 3
+    option redispatch 1
+    retry-on conn-failure empty-response response-timeout
+
+frontend fe_keycloak
+    bind :8080
+    # Solo X-Forwarded-For (IP real del cliente). No se envía X-Forwarded-Proto: sin
+    # X-Forwarded-Port, Keycloak asumía el puerto por defecto de "http" (80) y emitía
+    # URLs e "issuer" sin el :8081 (hallazgo del ensayo). Sin TLS en el balanceador,
+    # Keycloak toma esquema, host y puerto del encabezado Host, que llega intacto.
+    # Con TLS en producción: X-Forwarded-Proto https + X-Forwarded-Port 443, o mejor
+    # KC_HOSTNAME con la URL pública fija.
+    option forwardfor
+    default_backend be_keycloak
+
+backend be_keycloak
+    balance roundrobin
+    cookie KC_ROUTE insert indirect nocache httponly
+    option httpchk GET /health/live
+    http-check expect status 200
+    default-server check port 9000 inter 2s fall 2 rise 2 resolvers docker init-addr last,libc,none
+%{ for s in servers ~}
+    server ${s} ${s}:8080 cookie ${s}
+%{ endfor ~}
+
+frontend fe_monitoring
+    bind :8404
+    monitor-uri /healthz
+    http-request use-service prometheus-exporter if { path /metrics }
+    stats enable
+    stats uri /stats
+    stats refresh 5s
+    stats show-legends
