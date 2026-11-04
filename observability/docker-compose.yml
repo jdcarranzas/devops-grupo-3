@@ -6,18 +6,24 @@
 #   Grafana     : dashboard de Golden Signals, SLOs y Error Budget
 #   postgres-exporter : métricas de PostgreSQL
 #   cAdvisor    : CPU / memoria por contenedor (saturación)
+#   Loki + Alloy: logs estructurados de los contenedores del despliegue (Entregable 4)
 #   k6 (perfil "carga"): generador de tráfico, solo se ejecuta bajo demanda
 #
-# Se une a la red "backend" del sistema (docker-compose.yml de la raíz), así que
-# primero hay que levantar Keycloak + PostgreSQL. Desde la raíz del repositorio:
+# Se une a la red "backend" del despliegue de Terraform (Entregable 4), así que
+# primero hay que aplicar Terraform. La red se elige con KC_BACKEND_NETWORK en
+# el .env (por defecto la de prod: keycloak-prod-backend). Desde la raíz:
 #
-#   docker compose up -d --build
+#   terraform -chdir=terraform apply -var-file=environments/prod.tfvars
 #   docker compose --env-file .env -f observability/docker-compose.yml up -d
+#
+# Los contenedores se encuentran por alias DNS estables en esa red:
+#   keycloak-1, keycloak-2 (réplicas), keycloak-lb (HAProxy), postgres
 #
 # Interfaces (solo en localhost):
 #   Grafana      http://localhost:3000   (admin / GRAFANA_ADMIN_PASSWORD del .env)
 #   Prometheus   http://localhost:9090
 #   Alertmanager http://localhost:9093
+#   Alloy (pipeline de logs) http://localhost:12345
 # =============================================================================
 name: keycloak-observability
 
@@ -75,6 +81,7 @@ services:
       - "127.0.0.1:3000:3000"
     depends_on:
       - prometheus
+      - loki
     networks:
       - monitoring
 
@@ -83,7 +90,7 @@ services:
     container_name: obs-postgres-exporter
     restart: unless-stopped
     environment:
-      DATA_SOURCE_URI: kc-postgres:5432/${POSTGRES_DB}?sslmode=disable
+      DATA_SOURCE_URI: postgres:5432/${POSTGRES_DB}?sslmode=disable
       DATA_SOURCE_USER: ${POSTGRES_USER}
       DATA_SOURCE_PASS: ${POSTGRES_PASSWORD}
     networks:
@@ -110,12 +117,49 @@ services:
     networks:
       - monitoring
 
+  # Almacén de logs (consultado desde Grafana con LogQL).
+  loki:
+    image: grafana/loki:3.7.4
+    container_name: obs-loki
+    restart: unless-stopped
+    command: ["-config.file=/etc/loki/loki.yml"]
+    volumes:
+      - ./loki/loki.yml:/etc/loki/loki.yml:ro
+      - lokidata:/loki
+    ports:
+      - "127.0.0.1:3100:3100"
+    networks:
+      - monitoring
+
+  # Recolector de logs: lee los logs de los contenedores con la etiqueta
+  # managed-by=terraform por la API de Docker y los envía a Loki.
+  # El socket de Docker se monta en solo lectura (como ya lo usa cAdvisor).
+  alloy:
+    image: grafana/alloy:v1.21.2
+    container_name: obs-alloy
+    restart: unless-stopped
+    command:
+      - run
+      - --server.http.listen-addr=0.0.0.0:12345
+      - --storage.path=/var/lib/alloy/data
+      - /etc/alloy/config.alloy
+    volumes:
+      - ./alloy/config.alloy:/etc/alloy/config.alloy:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    ports:
+      - "127.0.0.1:12345:12345"
+    depends_on:
+      - loki
+    networks:
+      - monitoring
+
   # Generador de carga: no arranca con "up", se ejecuta con "run" (ver README).
   k6:
     image: grafana/k6:1.3.0
     profiles: ["carga"]
     environment:
-      KC_URL: http://kc-app:8080
+      # k6 entra por el balanceador, igual que un usuario real.
+      KC_URL: http://keycloak-lb:8080
       KC_BOOTSTRAP_ADMIN_USERNAME: ${KC_BOOTSTRAP_ADMIN_USERNAME}
       KC_BOOTSTRAP_ADMIN_PASSWORD: ${KC_BOOTSTRAP_ADMIN_PASSWORD}
     volumes:
@@ -126,10 +170,11 @@ services:
 volumes:
   promdata:
   grafanadata:
+  lokidata:
 
 networks:
   monitoring:
-  # Red creada por el docker-compose.yml de la raíz (proyecto "keycloak-devops").
+  # Red backend creada por Terraform (módulo network): <proyecto>-<ambiente>-backend.
   keycloak-backend:
     external: true
-    name: keycloak-devops_backend
+    name: ${KC_BACKEND_NETWORK:-keycloak-prod-backend}

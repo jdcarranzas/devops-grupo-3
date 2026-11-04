@@ -6,6 +6,7 @@
 #   3. amtool check-config         : configuración de Alertmanager
 #   4. JSON del dashboard          : que Grafana lo pueda cargar
 #   5. docker compose config       : el compose de observabilidad es válido
+#   6. Loki y Alloy                : configuración de logs válida (Entregable 4)
 # =============================================================================
 name: Observability
 
@@ -27,6 +28,8 @@ permissions:
 env:
   PROMETHEUS_IMAGE: prom/prometheus:v3.5.0
   ALERTMANAGER_IMAGE: prom/alertmanager:v0.28.1
+  LOKI_IMAGE: grafana/loki:3.7.4
+  ALLOY_IMAGE: grafana/alloy:v1.21.2
 
 jobs:
   validate:
@@ -68,3 +71,13 @@ jobs:
           cp .env.example .env
           docker compose --env-file .env -f observability/docker-compose.yml config --quiet
           echo "observability/docker-compose.yml válido"
+
+      - name: Validar configuración de Loki
+        run: |
+          docker run --rm -v "$PWD/observability/loki:/l:ro" \
+            "$LOKI_IMAGE" -config.file=/l/loki.yml -verify-config
+
+      - name: Validar configuración de Alloy (sintaxis y formato)
+        run: |
+          docker run --rm -v "$PWD/observability/alloy:/a:ro" \
+            "$ALLOY_IMAGE" fmt /a/config.alloy > /dev/null

@@ -6,7 +6,8 @@
 //   default() : simula el tráfico de un IdP real contra los endpoints OIDC:
 //                 - 70 % client_credentials   (servicio a servicio, barato)
 //                 - 20 % password grant        (login de usuario: hash de la clave;
-//                                               1 de cada 20 con clave errada -> 401)
+//                                               1 de cada 20 con clave errada -> 400
+//                                               invalid_grant, RFC 6749 §5.2)
 //                 - 10 % discovery + JWKS      (lo que consultan las aplicaciones)
 //
 // Perfiles (variable PERFIL):
@@ -23,7 +24,7 @@
 import http from 'k6/http';
 import { check, sleep } from 'k6';
 
-const BASE = __ENV.KC_URL || 'http://kc-app:8080';
+const BASE = __ENV.KC_URL || 'http://keycloak-lb:8080';
 const ADMIN_USER = __ENV.KC_BOOTSTRAP_ADMIN_USERNAME || 'admin';
 const ADMIN_PASS = __ENV.KC_BOOTSTRAP_ADMIN_PASSWORD;
 const PERFIL = __ENV.PERFIL || 'nominal';
@@ -95,7 +96,8 @@ export function setup() {
   if (listo.status !== 200) {
     throw new Error(
       `Keycloak no responde en ${BASE}: ${listo.error || 'HTTP ' + listo.status}. ` +
-        'Verifique con "docker compose ps" que kc-app esté running/healthy y en la red keycloak-devops_backend.',
+        'Verifique que el balanceador (keycloak-lb) y las réplicas estén healthy y que KC_BACKEND_NETWORK ' +
+          'apunte a la red backend del despliegue (por defecto keycloak-prod-backend).',
     );
   }
   const tok = http.post(
@@ -120,6 +122,7 @@ export function setup() {
         {
           clientId: CLIENT_ID,
           enabled: true,
+          fullScopeAllowed: false,
           publicClient: false,
           secret: CLIENT_SECRET,
           serviceAccountsEnabled: true,
@@ -129,6 +132,7 @@ export function setup() {
         {
           clientId: PUBLIC_CLIENT,
           enabled: true,
+          fullScopeAllowed: false,
           publicClient: true,
           standardFlowEnabled: true,
           directAccessGrantsEnabled: true,
@@ -150,6 +154,20 @@ export function setup() {
     const r = http.post(`${BASE}/admin/realms`, JSON.stringify(realm), auth);
     check(r, { 'realm demo creado': (x) => x.status === 201 });
   }
+
+  // Keycloak 26 escribe un WARN (TokenEndpoint.full-scope-allowed, opción obsoleta) en CADA
+  // petición de token de un cliente con "Full scope allowed". Con la carga de k6 eso inunda los
+  // logs y tapa los errores reales en el GameDay. Se desactiva en los clientes de prueba,
+  // también si el realm ya existía de una ejecución anterior.
+  for (const clientId of [CLIENT_ID, PUBLIC_CLIENT]) {
+    const res = http.get(`${BASE}/admin/realms/${REALM}/clients?clientId=${clientId}`, auth);
+    const lista = res.status === 200 ? res.json() : [];
+    if (lista.length === 1 && lista[0].fullScopeAllowed) {
+      const cliente = Object.assign({}, lista[0], { fullScopeAllowed: false });
+      const u = http.put(`${BASE}/admin/realms/${REALM}/clients/${cliente.id}`, JSON.stringify(cliente), auth);
+      check(u, { 'cliente sin full scope': (x) => x.status === 204 });
+    }
+  }
   return {};
 }
 
@@ -163,7 +181,9 @@ export default function () {
     );
     check(r, { 'token client_credentials 200': (x) => x.status === 200 });
   } else if (p < 0.9) {
-    // Usuarios que se equivocan de clave: 4xx esperado, no consume presupuesto de error.
+    // Usuarios que se equivocan de clave: Keycloak responde 400 invalid_grant (RFC 6749 §5.2).
+    // Es un 4xx esperado: no consume presupuesto de error (el SLI solo cuenta 5xx) y no se
+    // cuenta como petición fallida en k6.
     const claveErrada = Math.random() < 0.05;
     const r = http.post(
       `${BASE}/realms/${REALM}/protocol/openid-connect/token`,
@@ -174,10 +194,14 @@ export default function () {
         password: claveErrada ? 'clave-equivocada' : USER_PASS,
         scope: 'openid',
       }),
-      Object.assign({ tags: { endpoint: 'token' } }, FORM),
+      Object.assign(
+        { tags: { endpoint: 'token' } },
+        claveErrada ? { responseCallback: http.expectedStatuses(400, 401) } : {},
+        FORM,
+      ),
     );
     if (claveErrada) {
-      check(r, { 'clave errada rechazada (401)': (x) => x.status === 401 });
+      check(r, { 'clave errada rechazada (4xx)': (x) => x.status === 400 || x.status === 401 });
     } else {
       check(r, { 'token password 200': (x) => x.status === 200 });
     }

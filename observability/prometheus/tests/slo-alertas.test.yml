@@ -38,7 +38,9 @@ tests:
           http_server_requests_seconds_count{job="keycloak", method="GET", outcome="SERVER_ERROR",
           status="500", uri="/metrics"}
         values: "0+1000x90"
-      - series: 'up{job="keycloak"}'
+      - series: 'up{job="keycloak", instance="keycloak-1:9000", replica="keycloak-1"}'
+        values: "1x90"
+      - series: 'up{job="keycloak", instance="keycloak-2:9000", replica="keycloak-2"}'
         values: "1x90"
       - series: 'pg_up{job="postgres"}'
         values: "1x60 0x30"
@@ -132,3 +134,85 @@ tests:
               runbook_url: >-
                 https://github.com/jdcarranzas/devops-grupo-3/blob/main/observability/runbooks/RB-02-latencia.md
               dashboard: "http://localhost:3000/d/keycloak-slo"
+
+  # ---------------------------------------------------------------------------
+  # Escenario 3: terminación abrupta de una réplica (Entregable 4).
+  # keycloak-2 deja de responder a los 30 min; keycloak-1 sigue sana.
+  # Se espera el warning de redundancia y NO la alerta crítica de servicio caído.
+  # Después cae también keycloak-1: ahí sí salta la crítica.
+  # ---------------------------------------------------------------------------
+  - interval: 1m
+    input_series:
+      - series: 'up{job="keycloak", instance="keycloak-1:9000", replica="keycloak-1"}'
+        values: "1x45 0x15"
+      - series: 'up{job="keycloak", instance="keycloak-2:9000", replica="keycloak-2"}'
+        values: "1x30 0x30"
+
+    alert_rule_test:
+      - eval_time: 29m
+        alertname: KeycloakReplicaCaida
+        exp_alerts: []
+      - eval_time: 35m
+        alertname: KeycloakReplicaCaida
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              job: keycloak
+              instance: "keycloak-2:9000"
+              replica: keycloak-2
+            exp_annotations:
+              summary: "Réplica keycloak-2 de Keycloak fuera de servicio: sin redundancia"
+              description: >-
+                keycloak-2:9000 no responde. El balanceador atiende con las réplicas restantes,
+                pero una segunda falla dejaría el servicio caído.
+              runbook_url: >-
+                https://github.com/jdcarranzas/devops-grupo-3/blob/main/observability/runbooks/RB-03-replica-caida.md
+      - eval_time: 35m
+        alertname: KeycloakNoResponde
+        exp_alerts: []
+      # Las dos réplicas caídas: crítica de servicio caído y ya no el warning.
+      - eval_time: 50m
+        alertname: KeycloakNoResponde
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+            exp_annotations:
+              summary: "Ninguna réplica de Keycloak responde"
+              description: "Prometheus no puede leer /metrics de ninguna réplica (keycloak-N:9000) hace más de 2 min."
+              runbook_url: >-
+                https://github.com/jdcarranzas/devops-grupo-3/blob/main/observability/runbooks/RB-01-errores-5xx.md
+      - eval_time: 50m
+        alertname: KeycloakReplicaCaida
+        exp_alerts: []
+
+  # ---------------------------------------------------------------------------
+  # Escenario 4: el balanceador se queda sin réplicas sanas (hallazgo del GameDay).
+  # Keycloak sigue entregando métricas (up = 1) pero HAProxy no le envía tráfico:
+  # la alerta debe salir de las métricas del balanceador.
+  # ---------------------------------------------------------------------------
+  - interval: 1m
+    input_series:
+      - series: 'haproxy_backend_active_servers{job="haproxy", proxy="be_keycloak"}'
+        values: "2x10 0x10"
+      - series: 'up{job="keycloak", instance="keycloak-1:9000", replica="keycloak-1"}'
+        values: "1x20"
+
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: BalanceadorSinReplicas
+        exp_alerts: []
+      - eval_time: 13m
+        alertname: BalanceadorSinReplicas
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+            exp_annotations:
+              summary: "HAProxy no tiene réplicas sanas de Keycloak: responde 503 a todos los usuarios"
+              description: >-
+                Ninguna réplica pasa el health check. El SLI de Keycloak no ve estas peticiones porque no
+                llegan a las réplicas: el impacto real solo se ve en las métricas del balanceador.
+              runbook_url: >-
+                https://github.com/jdcarranzas/devops-grupo-3/blob/main/observability/runbooks/RB-01-errores-5xx.md
+      - eval_time: 13m
+        alertname: KeycloakNoResponde
+        exp_alerts: []
