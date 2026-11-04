@@ -1,6 +1,9 @@
 # Variables de entorno reales (contienen secretos). Solo se versiona .env.example
 .env
 
+# Archivos que la app de Claude descarga dentro del repositorio
+Claude outputs/
+
 # Archivos de sistema / editores
 .DS_Store
 Thumbs.db
@@ -27,3 +30,10 @@ override.tf.json
 *_override.tf.json
 .terraformrc
 terraform.rc
+
+# --- GameDay y respaldos (Entregable 4) ---
+# Valores de CPU guardados durante el escenario de saturación
+gameday/.cpus-*.json
+# Respaldos de la base de datos (contienen datos y hashes de contraseñas)
+backups/
+*.dump
