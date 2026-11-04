@@ -11,7 +11,7 @@
   "timezone": "browser",
   "editable": false,
   "schemaVersion": 39,
-  "version": 1,
+  "version": 4,
   "refresh": "10s",
   "graphTooltip": 1,
   "time": {
@@ -900,6 +900,463 @@
     },
     {
       "type": "row",
+      "title": "Alta disponibilidad · balanceador (HAProxy) y réplicas",
+      "id": 40,
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 14
+      },
+      "panels": []
+    },
+    {
+      "type": "stat",
+      "title": "Réplicas sanas en el balanceador",
+      "id": 41,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "description": "Servidores UP en el backend de HAProxy (health check activo a /health/ready). Con 1 réplica el servicio sigue arriba pero sin redundancia.",
+      "gridPos": {
+        "h": 8,
+        "w": 4,
+        "x": 0,
+        "y": 15
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "max(haproxy_backend_active_servers{proxy=\"be_keycloak\"})",
+          "legendFormat": "",
+          "refId": "A",
+          "range": true,
+          "instant": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "decimals": 0,
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 1
+              },
+              {
+                "color": "green",
+                "value": 2
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "area",
+        "textMode": "value",
+        "justifyMode": "center",
+        "orientation": "auto"
+      }
+    },
+    {
+      "type": "state-timeline",
+      "title": "Estado de cada réplica (scrape de Prometheus)",
+      "id": 43,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "description": "Verde = la réplica entrega métricas. Rojo = caída o reiniciándose (p. ej. durante un rolling update o el GameDay).",
+      "gridPos": {
+        "h": 8,
+        "w": 7,
+        "x": 4,
+        "y": 15
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "up{job=\"keycloak\"}",
+          "legendFormat": "{{replica}}",
+          "refId": "A",
+          "range": true,
+          "instant": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 1
+              }
+            ]
+          },
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "0": {
+                  "text": "CAÍDA",
+                  "color": "red"
+                },
+                "1": {
+                  "text": "ARRIBA",
+                  "color": "green"
+                }
+              }
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "options": {
+        "showValue": "never",
+        "mergeValues": true,
+        "rowHeight": 0.8,
+        "legend": {
+          "showLegend": false
+        }
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Tráfico por réplica (req/s a /realms/*)",
+      "id": 42,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "description": "Cómo reparte el balanceador. Si una réplica cae, su tráfico pasa a la otra sin que el total cambie.",
+      "gridPos": {
+        "h": 8,
+        "w": 6,
+        "x": 11,
+        "y": 15
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum by (replica) (rate(http_server_requests_seconds_count{job=\"keycloak\", uri=~\"/realms/.+\"}[$__rate_interval]))",
+          "legendFormat": "{{replica}}",
+          "refId": "A",
+          "range": true,
+          "instant": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 20,
+            "showPoints": "never",
+            "spanNulls": true,
+            "axisSoftMin": 0,
+            "stacking": {
+              "mode": "normal",
+              "group": "A"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Balanceador · 5xx al usuario, reintentos y redispatch",
+      "id": 44,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "description": "Reintentos/redispatch > 0 con 5xx al usuario en 0 = el balanceador absorbió la falla de una réplica.",
+      "gridPos": {
+        "h": 8,
+        "w": 7,
+        "x": 17,
+        "y": 15
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum(rate(haproxy_frontend_http_responses_total{proxy=\"fe_keycloak\", code=\"5xx\"}[$__rate_interval]))",
+          "legendFormat": "5xx entregados al usuario",
+          "refId": "A",
+          "range": true,
+          "instant": false
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum(rate(haproxy_backend_retry_warnings_total{proxy=\"be_keycloak\"}[$__rate_interval]))",
+          "legendFormat": "reintentos",
+          "refId": "B",
+          "range": true,
+          "instant": false
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum(rate(haproxy_backend_redispatch_warnings_total{proxy=\"be_keycloak\"}[$__rate_interval]))",
+          "legendFormat": "redispatch a otra réplica",
+          "refId": "C",
+          "range": true,
+          "instant": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 20,
+            "showPoints": "never",
+            "spanNulls": true,
+            "axisSoftMin": 0
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "type": "row",
+      "title": "Logs estructurados (Loki) · Keycloak y PostgreSQL",
+      "id": 50,
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 23
+      },
+      "panels": []
+    },
+    {
+      "type": "timeseries",
+      "title": "Volumen de logs de Keycloak por nivel",
+      "id": 51,
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "description": "Líneas de log por minuto según su nivel (campo level del JSON de Keycloak). Un salto de ERROR suele aparecer junto al pico de 5xx. Se excluye la advertencia de configuración obsoleta \"full-scope-allowed\", que Keycloak 26 emite en cada token de los clientes de prueba.",
+      "gridPos": {
+        "h": 10,
+        "w": 8,
+        "x": 0,
+        "y": 24
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "expr": "sum by (level) (count_over_time({tier=\"compute\", level=~\".+\"} != \"full-scope-allowed\" [1m]))",
+          "legendFormat": "{{level}}",
+          "refId": "A",
+          "queryType": "range"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 60,
+            "showPoints": "never",
+            "drawStyle": "bars",
+            "stacking": {
+              "mode": "normal",
+              "group": "A"
+            }
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "ERROR"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "red"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "WARN"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "orange"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "INFO"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "green"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "type": "logs",
+      "title": "Errores y advertencias · Keycloak (por réplica) y PostgreSQL",
+      "id": 52,
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "description": "Logs ERROR/WARN de las réplicas de Keycloak y ERROR/FATAL de PostgreSQL. Guían la identificación de la causa raíz durante un incidente. Excluye la advertencia de configuración obsoleta \"full-scope-allowed\" (ruido, no es una falla).",
+      "gridPos": {
+        "h": 10,
+        "w": 16,
+        "x": 8,
+        "y": 24
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "expr": "{tier=\"compute\", level=~\"ERROR|WARN\"} != \"full-scope-allowed\" | json | line_format \"{{.replica}} {{.level}} {{.loggerName}}: {{.message}}\"",
+          "refId": "A",
+          "queryType": "range"
+        },
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "expr": "{tier=\"data\", level=~\"ERROR|FATAL|PANIC|WARNING\"}",
+          "refId": "B",
+          "queryType": "range"
+        }
+      ],
+      "options": {
+        "showTime": true,
+        "showLabels": false,
+        "showCommonLabels": false,
+        "wrapLogMessage": true,
+        "prettifyLogMessage": false,
+        "enableLogDetails": true,
+        "dedupStrategy": "none",
+        "sortOrder": "Descending"
+      }
+    },
+    {
+      "type": "row",
       "title": "Golden Signals · Keycloak (endpoints /realms/*)",
       "id": 11,
       "collapsed": false,
@@ -907,7 +1364,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 14
+        "y": 34
       },
       "panels": []
     },
@@ -924,7 +1381,7 @@
         "h": 8,
         "w": 8,
         "x": 0,
-        "y": 15
+        "y": 35
       },
       "targets": [
         {
@@ -1072,7 +1529,7 @@
         "h": 8,
         "w": 8,
         "x": 8,
-        "y": 15
+        "y": 35
       },
       "targets": [
         {
@@ -1148,7 +1605,7 @@
         "h": 8,
         "w": 8,
         "x": 16,
-        "y": 15
+        "y": 35
       },
       "targets": [
         {
@@ -1224,7 +1681,7 @@
         "h": 8,
         "w": 8,
         "x": 0,
-        "y": 23
+        "y": 43
       },
       "targets": [
         {
@@ -1300,7 +1757,7 @@
         "h": 8,
         "w": 8,
         "x": 8,
-        "y": 23
+        "y": 43
       },
       "targets": [
         {
@@ -1402,7 +1859,7 @@
         "h": 8,
         "w": 8,
         "x": 16,
-        "y": 23
+        "y": 43
       },
       "targets": [
         {
@@ -1505,7 +1962,7 @@
         "h": 8,
         "w": 8,
         "x": 0,
-        "y": 31
+        "y": 51
       },
       "targets": [
         {
@@ -1619,7 +2076,7 @@
         "h": 8,
         "w": 8,
         "x": 8,
-        "y": 31
+        "y": 51
       },
       "targets": [
         {
@@ -1695,7 +2152,7 @@
     },
     {
       "type": "stat",
-      "title": "Keycloak · métricas disponibles",
+      "title": "Keycloak · métricas por réplica",
       "id": 20,
       "description": "1 = Prometheus obtiene métricas de kc-app:9000.",
       "datasource": {
@@ -1706,7 +2163,7 @@
         "h": 4,
         "w": 4,
         "x": 16,
-        "y": 31
+        "y": 51
       },
       "targets": [
         {
@@ -1715,7 +2172,7 @@
             "uid": "prometheus"
           },
           "expr": "up{job=\"keycloak\"}",
-          "legendFormat": "",
+          "legendFormat": "{{replica}}",
           "refId": "A",
           "range": true,
           "instant": false
@@ -1767,7 +2224,7 @@
         },
         "colorMode": "background",
         "graphMode": "none",
-        "textMode": "value",
+        "textMode": "value_and_name",
         "justifyMode": "center",
         "orientation": "auto"
       }
@@ -1785,7 +2242,7 @@
         "h": 4,
         "w": 4,
         "x": 20,
-        "y": 31
+        "y": 51
       },
       "targets": [
         {
@@ -1836,7 +2293,7 @@
     },
     {
       "type": "stat",
-      "title": "Uptime de Keycloak",
+      "title": "Uptime por réplica",
       "id": 22,
       "description": "",
       "datasource": {
@@ -1847,7 +2304,7 @@
         "h": 4,
         "w": 8,
         "x": 16,
-        "y": 35
+        "y": 55
       },
       "targets": [
         {
@@ -1856,7 +2313,7 @@
             "uid": "prometheus"
           },
           "expr": "process_uptime_seconds{job=\"keycloak\"}",
-          "legendFormat": "",
+          "legendFormat": "{{replica}}",
           "refId": "A",
           "range": true,
           "instant": false
@@ -1891,7 +2348,7 @@
         },
         "colorMode": "background",
         "graphMode": "none",
-        "textMode": "value",
+        "textMode": "value_and_name",
         "justifyMode": "center",
         "orientation": "auto"
       }
@@ -1905,7 +2362,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 39
+        "y": 59
       },
       "panels": []
     },
@@ -1922,7 +2379,7 @@
         "h": 8,
         "w": 4,
         "x": 0,
-        "y": 40
+        "y": 60
       },
       "targets": [
         {
@@ -2001,7 +2458,7 @@
         "h": 8,
         "w": 7,
         "x": 4,
-        "y": 40
+        "y": 60
       },
       "targets": [
         {
@@ -2119,7 +2576,7 @@
         "h": 8,
         "w": 6,
         "x": 11,
-        "y": 40
+        "y": 60
       },
       "targets": [
         {
@@ -2212,7 +2669,7 @@
         "h": 8,
         "w": 7,
         "x": 17,
-        "y": 40
+        "y": 60
       },
       "targets": [
         {
@@ -2299,7 +2756,7 @@
         "h": 8,
         "w": 8,
         "x": 0,
-        "y": 48
+        "y": 68
       },
       "targets": [
         {
@@ -2380,7 +2837,7 @@
         "h": 8,
         "w": 8,
         "x": 8,
-        "y": 48
+        "y": 68
       },
       "targets": [
         {
@@ -2456,7 +2913,7 @@
         "h": 8,
         "w": 8,
         "x": 16,
-        "y": 48
+        "y": 68
       },
       "targets": [
         {
@@ -2530,7 +2987,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 56
+        "y": 76
       },
       "panels": []
     },
@@ -2547,7 +3004,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 57
+        "y": 77
       },
       "targets": [
         {
@@ -2555,7 +3012,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum by (name) (rate(container_cpu_usage_seconds_total{name=~\"kc-app|kc-postgres\"}[$__rate_interval]))",
+          "expr": "sum by (name) (rate(container_cpu_usage_seconds_total{name=~\"kc-app|kc-postgres|.+-keycloak-[0-9]+|.+-postgres|.+-lb\"}[$__rate_interval]))",
           "legendFormat": "{{name}}",
           "refId": "A",
           "range": true,
@@ -2624,7 +3081,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 57
+        "y": 77
       },
       "targets": [
         {
@@ -2632,7 +3089,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "max by (name) (container_memory_working_set_bytes{name=~\"kc-app|kc-postgres\"}) / max by (name) (container_spec_memory_limit_bytes{name=~\"kc-app|kc-postgres\"} > 0)",
+          "expr": "max by (name) (container_memory_working_set_bytes{name=~\"kc-app|kc-postgres|.+-keycloak-[0-9]+|.+-postgres|.+-lb\"}) / max by (name) (container_spec_memory_limit_bytes{name=~\"kc-app|kc-postgres|.+-keycloak-[0-9]+|.+-postgres|.+-lb\"} > 0)",
           "legendFormat": "{{name}}",
           "refId": "A",
           "range": true,

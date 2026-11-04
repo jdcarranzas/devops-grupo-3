@@ -129,19 +129,30 @@ variable "keycloak_admin_password" {
 }
 
 variable "keycloak_http_port" {
-  description = "Puerto del host (solo 127.0.0.1) para el tráfico HTTP de Keycloak."
+  description = "Puerto del host (solo 127.0.0.1) por el que el balanceador recibe el tráfico de Keycloak."
   type        = number
 }
 
-variable "keycloak_management_port" {
-  description = "Puerto del host (solo 127.0.0.1) para health y métricas, si se publica."
+variable "keycloak_replicas" {
+  description = "Número de réplicas de Keycloak detrás del balanceador (2 o más = sin SPOF en el cómputo)."
   type        = number
+  default     = 2
+
+  validation {
+    condition     = var.keycloak_replicas >= 1 && var.keycloak_replicas <= 5
+    error_message = "keycloak_replicas debe estar entre 1 y 5."
+  }
 }
 
-variable "keycloak_publish_management_port" {
-  description = "Si es true, se publica el puerto de gestión 9000 en el host."
-  type        = bool
-  default     = false
+variable "keycloak_log_console_output" {
+  description = "Formato de los logs de Keycloak: json (estructurado, para Loki) o default (texto)."
+  type        = string
+  default     = "json"
+
+  validation {
+    condition     = contains(["json", "default"], var.keycloak_log_console_output)
+    error_message = "keycloak_log_console_output debe ser \"json\" o \"default\"."
+  }
 }
 
 variable "keycloak_log_level" {
@@ -163,4 +174,33 @@ variable "keycloak_memory_mb" {
 variable "keycloak_cpus" {
   description = "Límite de CPU del contenedor de Keycloak (ej. \"1.0\", \"2.0\")."
   type        = string
+}
+
+# ---------- Balanceador (HAProxy) ----------
+variable "lb_image" {
+  description = "Imagen de HAProxy con tag fijo (rama LTS)."
+  type        = string
+  default     = "haproxy:3.2.26-alpine"
+}
+
+variable "lb_stats_port" {
+  description = "Puerto del host (solo 127.0.0.1) para /stats y /metrics de HAProxy."
+  type        = number
+}
+
+variable "lb_memory_mb" {
+  description = "Límite de memoria (MB) del contenedor de HAProxy."
+  type        = number
+  default     = 256
+
+  validation {
+    condition     = var.lb_memory_mb >= 64
+    error_message = "lb_memory_mb debe ser al menos 64 MB."
+  }
+}
+
+variable "lb_cpus" {
+  description = "Límite de CPU del contenedor de HAProxy."
+  type        = string
+  default     = "0.5"
 }

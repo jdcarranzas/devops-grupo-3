@@ -1,0 +1,123 @@
+# =============================================================================
+# Despliegue continuo (CD) - Entregable 4
+#
+# Cuándo corre:
+#   - Automáticamente cuando el workflow "CI" termina con éxito después de un push
+#     a main (merge de un Pull Request). En ese punto la imagen sha-<commit> ya
+#     fue construida, escaneada con Trivy y publicada en GHCR.
+#   - A mano (workflow_dispatch), por ejemplo para volver a una imagen anterior
+#     (rollback) indicando su tag.
+#
+# Dónde corre: en un runner AUTOALOJADO (self-hosted) instalado en el equipo del
+# laboratorio, que es donde está el Docker del ambiente "prod". Los demás
+# workflows (lint, build, Trivy, Terraform plan, observabilidad) siguen en los
+# runners de GitHub; este es el único job que toca la infraestructura real.
+#
+# Seguridad del runner autoalojado:
+#   - Solo se dispara por push a main o a mano: nunca por pull_request, así que
+#     el código de un fork no se ejecuta en el equipo.
+#   - Mínimo privilegio: el token solo lee el repositorio y los paquetes.
+#   - Los secretos viven en el environment "production" de GitHub.
+#
+# En la nube este mismo job usaría OIDC (sin llaves de larga duración) hacia el
+# proveedor y un backend remoto del estado; ver docs/DESPLIEGUE.md.
+# =============================================================================
+name: Deploy
+
+on:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: "Tag de la imagen a desplegar (ej. sha-1a2b3c4). Vacío = commit actual de main"
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+  packages: read
+
+# Nunca dos despliegues a la vez sobre el mismo ambiente.
+concurrency:
+  group: deploy-prod
+  cancel-in-progress: false
+
+env:
+  TF_VERSION: "1.16.6"
+  REGISTRY: ghcr.io
+
+jobs:
+  deploy:
+    name: Rolling update en prod (self-hosted)
+    # Solo si el CI terminó bien y venía de un push (merge a main), o a mano.
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push')
+    runs-on: [self-hosted, windows]
+    environment:
+      name: production
+      url: http://localhost:8081
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      TF_IN_AUTOMATION: "true"
+      TF_INPUT: "false"
+      # Secretos del environment "production" (Settings > Environments).
+      TF_VAR_db_password: ${{ secrets.TF_VAR_DB_PASSWORD }}
+      TF_VAR_keycloak_admin_password: ${{ secrets.TF_VAR_KEYCLOAK_ADMIN_PASSWORD }}
+      # Carpeta del estado de Terraform FUERA del workspace del runner (variable del repo).
+      TF_STATE_DIR: ${{ vars.TF_STATE_DIR }}
+      DEPLOY_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+    steps:
+      - name: Checkout del commit que pasó el CI
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.DEPLOY_SHA }}
+
+      - name: Instalar Terraform
+        uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+          terraform_wrapper: false
+
+      - name: Resolver la imagen a desplegar
+        id: image
+        env:
+          INPUT_TAG: ${{ inputs.image_tag }}
+        run: |
+          $tag = if ($env:INPUT_TAG) { $env:INPUT_TAG } else { "sha-$($env:DEPLOY_SHA.Substring(0, 7))" }
+          $repo = "${{ github.repository }}".ToLower()
+          $image = "$env:REGISTRY/${repo}:$tag"
+          "image=$image" >> $env:GITHUB_OUTPUT
+          Write-Host "Imagen a desplegar: $image"
+
+      - name: Descargar la imagen desde GHCR
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $env:GHCR_TOKEN | docker login $env:REGISTRY -u "${{ github.actor }}" --password-stdin
+          docker pull "${{ steps.image.outputs.image }}"
+          if ($LASTEXITCODE -ne 0) { throw "No se pudo descargar la imagen" }
+
+      - name: Rolling update con Terraform + smoke test
+        run: |
+          ./scripts/deploy.ps1 -Environment prod `
+            -Image "${{ steps.image.outputs.image }}" `
+            -StateDir "$env:TF_STATE_DIR"
+
+      - name: Resumen del despliegue
+        if: always()
+        run: |
+          "### Despliegue a prod" >> $env:GITHUB_STEP_SUMMARY
+          "- Commit: ``$env:DEPLOY_SHA``" >> $env:GITHUB_STEP_SUMMARY
+          "- Imagen: ``${{ steps.image.outputs.image }}``" >> $env:GITHUB_STEP_SUMMARY
+          "- Resultado: **${{ job.status }}**" >> $env:GITHUB_STEP_SUMMARY
+          docker ps --filter "name=keycloak-prod" --format "table {{.Names}}\t{{.Status}}"
+
+      - name: Cerrar sesión en GHCR
+        if: always()
+        run: docker logout $env:REGISTRY

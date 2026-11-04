@@ -21,13 +21,23 @@ good_db := {
 }
 
 good_kc := {
-	"address": "module.keycloak.docker_container.keycloak",
+	"address": "module.keycloak.docker_container.keycloak[\"1\"]",
 	"type": "docker_container",
 	"change": {"actions": ["create"], "after": {
 		"memory": 1024, "cpus": "1.0", "privileged": false,
+		"security_opts": ["no-new-privileges:true"], "ports": [],
+		"env": ["KC_DB_PASSWORD=Sup3r-Segura-2026"], "labels": labels("compute"),
+	}},
+}
+
+good_lb := {
+	"address": "module.loadbalancer.docker_container.haproxy",
+	"type": "docker_container",
+	"change": {"actions": ["create"], "after": {
+		"memory": 256, "cpus": "0.5", "privileged": false,
 		"security_opts": ["no-new-privileges:true"],
 		"ports": [{"internal": 8080, "external": 8080, "ip": "127.0.0.1"}],
-		"env": ["KC_DB_PASSWORD=Sup3r-Segura-2026"], "labels": labels("compute"),
+		"env": [], "labels": labels("edge"),
 	}},
 }
 
@@ -46,7 +56,7 @@ good_img := {
 plan(rcs) := {"resource_changes": rcs}
 
 test_plan_correcto_no_tiene_violaciones if {
-	count(deny) == 0 with input as plan([good_db, good_kc, good_net, good_img])
+	count(deny) == 0 with input as plan([good_db, good_kc, good_lb, good_net, good_img])
 }
 
 test_bd_con_puerto_publicado if {
@@ -56,9 +66,15 @@ test_bd_con_puerto_publicado if {
 }
 
 test_puerto_en_todas_las_interfaces if {
-	bad := json.patch(good_kc, [{"op": "replace", "path": "/change/after/ports/0/ip", "value": "0.0.0.0"}])
+	bad := json.patch(good_lb, [{"op": "replace", "path": "/change/after/ports/0/ip", "value": "0.0.0.0"}])
 	some msg in deny with input as plan([bad])
 	contains(msg, "127.0.0.1")
+}
+
+test_computo_con_puerto_publicado if {
+	bad := json.patch(good_kc, [{"op": "replace", "path": "/change/after/ports", "value": [{"internal": 8080, "ip": "127.0.0.1"}]}])
+	some msg in deny with input as plan([bad])
+	contains(msg, "balanceador")
 }
 
 test_sin_limite_de_memoria if {

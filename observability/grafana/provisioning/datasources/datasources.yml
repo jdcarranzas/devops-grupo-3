@@ -23,3 +23,13 @@ datasources:
     jsonData:
       implementation: prometheus
       handleGrafanaManagedAlerts: false
+
+  # Logs estructurados (Entregable 4): Alloy -> Loki.
+  - name: Loki
+    uid: loki
+    type: loki
+    access: proxy
+    url: http://loki:3100
+    editable: false
+    jsonData:
+      maxLines: 1000

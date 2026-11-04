@@ -145,18 +145,53 @@ groups:
   # ---------------------------------------------------------------------------
   # Sin métricas no hay SLI: si Keycloak o el exporter de PostgreSQL dejan de
   # responder, el burn rate no se puede calcular (0/0). Estas dos alertas cubren
-  # ese punto ciego y son de síntoma (servicio caído), no de causa.
+  # ese punto ciego y son de síntoma (servicio caído), no de causa. Con dos
+  # réplicas (Entregable 4) se distingue "una réplica caída" (warning: se perdió
+  # la redundancia) de "ninguna réplica responde" (critical).
   # ---------------------------------------------------------------------------
   - name: keycloak-disponibilidad-objetivos
     rules:
+      # Ninguna réplica entrega métricas: el servicio está caído por completo.
       - alert: KeycloakNoResponde
-        expr: up{job="keycloak"} == 0 or absent(up{job="keycloak"})
+        expr: sum(up{job="keycloak"}) == 0 or absent(up{job="keycloak"})
         for: 2m
         labels:
           severity: critical
         annotations:
-          summary: "Prometheus no puede obtener métricas de Keycloak"
-          description: "El endpoint kc-app:9000/metrics no responde desde hace más de 2 minutos."
+          summary: "Ninguna réplica de Keycloak responde"
+          description: "Prometheus no puede leer /metrics de ninguna réplica (keycloak-N:9000) hace más de 2 min."
+          runbook_url: >-
+            https://github.com/jdcarranzas/devops-grupo-3/blob/main/observability/runbooks/RB-01-errores-5xx.md
+
+      # Una réplica caída NO afecta a los usuarios (el balanceador la saca del
+      # pool), pero la plataforma pierde su redundancia: una segunda falla sería
+      # una caída total. Es un ticket (warning), no una página.
+      - alert: KeycloakReplicaCaida
+        expr: up{job="keycloak"} == 0 and on() sum(up{job="keycloak"}) > 0
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Réplica {{ $labels.replica }} de Keycloak fuera de servicio: sin redundancia"
+          description: >-
+            {{ $labels.instance }} no responde. El balanceador atiende con las réplicas restantes,
+            pero una segunda falla dejaría el servicio caído.
+          runbook_url: >-
+            https://github.com/jdcarranzas/devops-grupo-3/blob/main/observability/runbooks/RB-03-replica-caida.md
+
+      # El balanceador no tiene ninguna réplica sana: todo usuario recibe 503 de HAProxy.
+      # Se mide en HAProxy y no en Keycloak porque, en ese caso, ninguna petición llega a
+      # Keycloak y el SLI (calculado con sus métricas) queda en 0/0 sin alertar.
+      - alert: BalanceadorSinReplicas
+        expr: max(haproxy_backend_active_servers{proxy="be_keycloak"}) == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "HAProxy no tiene réplicas sanas de Keycloak: responde 503 a todos los usuarios"
+          description: >-
+            Ninguna réplica pasa el health check. El SLI de Keycloak no ve estas peticiones porque no
+            llegan a las réplicas: el impacto real solo se ve en las métricas del balanceador.
           runbook_url: >-
             https://github.com/jdcarranzas/devops-grupo-3/blob/main/observability/runbooks/RB-01-errores-5xx.md
 

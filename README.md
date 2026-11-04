@@ -15,9 +15,17 @@ Empaquetado, ejecución local e integración continua de **[Keycloak](https://ww
 | `terraform/` | Infraestructura como Código (Entregable 2): módulos network, database y keycloak, ambientes dev/prod y políticas. Ver [terraform/README.md](terraform/README.md) |
 | `.github/workflows/terraform.yml` | Pipeline de IaC: fmt → validate → TFLint → Checkov → plan (dev/prod) → políticas OPA con conftest |
 | `observability/` | Observabilidad y SRE (Entregable 3): Prometheus, Grafana, Alertmanager, reglas de SLO y burn rate, dashboard JSON, carga con k6 y runbooks. Ver [observability/README.md](observability/README.md) |
+| `scripts/deploy.ps1` · `.github/workflows/deploy.yml` | Despliegue continuo (Entregable 4): runner autoalojado + rolling update de las réplicas con Terraform. Ver [docs/DESPLIEGUE.md](docs/DESPLIEGUE.md) |
+| `gameday/gameday.ps1` | GameDay (Entregable 4): inyección y reversión de fallas (caída de la BD, de una réplica, saturación de CPU) con registro de tiempos. Guion: [docs/GAMEDAY.md](docs/GAMEDAY.md) |
+| `docs/PRE-MORTEM.md` | Pre-Mortem: escenarios de falla, 5 Porqués, impacto en SLOs y plan de acción. Ver [docs/PRE-MORTEM.md](docs/PRE-MORTEM.md) |
+| `scripts/backup-db.ps1` | Respaldo verificado de PostgreSQL (restauración: runbook RB-04) |
 | `.github/workflows/observability.yml` | Pipeline de observabilidad: promtool (config, reglas y pruebas unitarias de alertas), amtool, JSON de dashboards y compose |
 
 ## Ejecución local
+
+> Desde el Entregable 4 el despliegue de referencia es el de **Terraform** (2 réplicas + HAProxy,
+> ver [terraform/README.md](terraform/README.md)). El `docker-compose.yml` queda como entorno de
+> desarrollo rápido de una sola instancia.
 
 Requisitos: Docker Desktop (o Docker Engine + plugin Compose).
 

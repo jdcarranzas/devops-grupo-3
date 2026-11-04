@@ -2,9 +2,11 @@
 # Módulo raíz: arma la infraestructura de Keycloak a partir de tres módulos
 #   1. network  -> redes y subredes (frontend pública / backend interna)
 #   2. database -> capa de persistencia: PostgreSQL + volumen de datos
-#   3. keycloak -> capa de cómputo: servidor Keycloak
+#   3. keycloak -> capa de cómputo: N réplicas de Keycloak (clúster)
+#   4. loadbalancer -> HAProxy, único punto de entrada (Entregable 4)
 # El orden de creación sale de las referencias entre módulos:
-# network -> database (espera a "healthy") -> keycloak.
+# network -> database (espera a "healthy") -> keycloak (réplicas "healthy")
+# -> loadbalancer.
 # =============================================================================
 
 module "network" {
@@ -33,12 +35,12 @@ module "database" {
 module "keycloak" {
   source = "./modules/keycloak"
 
-  name_prefix           = local.name_prefix
-  image                 = var.keycloak_image
-  build_from_source     = var.keycloak_build_from_source
-  build_context         = local.repo_root
-  frontend_network_name = module.network.frontend_network_name
-  backend_network_name  = module.network.backend_network_name
+  name_prefix          = local.name_prefix
+  image                = var.keycloak_image
+  build_from_source    = var.keycloak_build_from_source
+  build_context        = local.repo_root
+  backend_network_name = module.network.backend_network_name
+  replicas             = var.keycloak_replicas
 
   db_jdbc_url = module.database.jdbc_url
   db_user     = var.db_user
@@ -47,13 +49,27 @@ module "keycloak" {
   admin_user     = var.keycloak_admin_user
   admin_password = var.keycloak_admin_password
 
-  http_port               = var.keycloak_http_port
-  management_port         = var.keycloak_management_port
-  publish_management_port = var.keycloak_publish_management_port
-  log_level               = var.keycloak_log_level
-  memory_mb               = var.keycloak_memory_mb
-  cpus                    = var.keycloak_cpus
-  labels                  = local.common_labels
+  log_level          = var.keycloak_log_level
+  log_console_output = var.keycloak_log_console_output
+  memory_mb          = var.keycloak_memory_mb
+  cpus               = var.keycloak_cpus
+  labels             = local.common_labels
+}
+
+module "loadbalancer" {
+  source = "./modules/loadbalancer"
+
+  name_prefix           = local.name_prefix
+  image                 = var.lb_image
+  frontend_network_name = module.network.frontend_network_name
+  backend_network_name  = module.network.backend_network_name
+  backend_servers       = module.keycloak.replica_hosts
+
+  http_port  = var.keycloak_http_port
+  stats_port = var.lb_stats_port
+  memory_mb  = var.lb_memory_mb
+  cpus       = var.lb_cpus
+  labels     = local.common_labels
 }
 
 # Control para evitar aplicar los tfvars de un ambiente sobre el estado de otro.

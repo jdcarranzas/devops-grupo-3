@@ -19,13 +19,8 @@ variable "build_context" {
   type        = string
 }
 
-variable "frontend_network_name" {
-  description = "Red frontend (puertos publicados)."
-  type        = string
-}
-
 variable "backend_network_name" {
-  description = "Red backend interna (acceso a PostgreSQL)."
+  description = "Red backend interna: PostgreSQL, balanceador y réplicas."
   type        = string
 }
 
@@ -56,20 +51,26 @@ variable "admin_password" {
   sensitive   = true
 }
 
-variable "http_port" {
-  description = "Puerto del host para HTTP (8080 dentro del contenedor)."
+variable "replicas" {
+  description = "Número de réplicas de Keycloak detrás del balanceador."
   type        = number
+  default     = 2
+
+  validation {
+    condition     = var.replicas >= 1 && var.replicas <= 5
+    error_message = "replicas debe estar entre 1 y 5."
+  }
 }
 
-variable "management_port" {
-  description = "Puerto del host para gestión (9000 dentro del contenedor)."
-  type        = number
-}
+variable "log_console_output" {
+  description = "Formato de los logs de consola: json (estructurado) o default (texto)."
+  type        = string
+  default     = "json"
 
-variable "publish_management_port" {
-  description = "Publicar o no el puerto de gestión en el host."
-  type        = bool
-  default     = false
+  validation {
+    condition     = contains(["json", "default"], var.log_console_output)
+    error_message = "log_console_output debe ser \"json\" o \"default\"."
+  }
 }
 
 variable "log_level" {

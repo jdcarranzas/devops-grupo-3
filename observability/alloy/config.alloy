@@ -1,0 +1,109 @@
+// =============================================================================
+// Grafana Alloy: recolecta los logs de los contenedores del despliegue y los
+// envía a Loki (reemplaza a Promtail, deprecado).
+//
+//   1. discovery.docker   : encuentra los contenedores creados por Terraform
+//                            (etiqueta managed-by=terraform).
+//   2. discovery.relabel  : convierte las etiquetas de Docker en etiquetas de Loki
+//                            de baja cardinalidad: container, environment, tier, replica.
+//   3. loki.source.docker : lee los logs por la API de Docker (socket de solo lectura).
+//   4. loki.process       : Keycloak (tier=compute) escribe JSON -> se extrae el nivel
+//                            como etiqueta y el logger como metadato estructurado.
+//                            PostgreSQL (tier=data) escribe texto -> se extrae el nivel
+//                            con una expresión regular.
+//   5. loki.write         : envía todo a Loki.
+// =============================================================================
+
+discovery.docker "contenedores" {
+	host             = "unix:///var/run/docker.sock"
+	refresh_interval = "5s"
+
+	filter {
+		name   = "label"
+		values = ["managed-by=terraform"]
+	}
+}
+
+discovery.relabel "contenedores" {
+	targets = []
+
+	rule {
+		source_labels = ["__meta_docker_container_name"]
+		regex         = "/(.*)"
+		target_label  = "container"
+	}
+
+	rule {
+		source_labels = ["__meta_docker_container_label_environment"]
+		target_label  = "environment"
+	}
+
+	rule {
+		source_labels = ["__meta_docker_container_label_tier"]
+		target_label  = "tier"
+	}
+
+	rule {
+		source_labels = ["__meta_docker_container_label_replica"]
+		regex         = "(.+)"
+		replacement   = "keycloak-$1"
+		target_label  = "replica"
+	}
+}
+
+loki.source.docker "contenedores" {
+	host             = "unix:///var/run/docker.sock"
+	targets          = discovery.docker.contenedores.targets
+	relabel_rules    = discovery.relabel.contenedores.rules
+	refresh_interval = "5s"
+	forward_to       = [loki.process.niveles.receiver]
+}
+
+loki.process "niveles" {
+	// Keycloak: logs JSON (KC_LOG_CONSOLE_OUTPUT=json).
+	stage.match {
+		selector = "{tier=\"compute\"}"
+
+		stage.json {
+			expressions = {
+				level  = "level",
+				logger = "loggerName",
+			}
+		}
+
+		stage.labels {
+			values = {
+				level = "",
+			}
+		}
+
+		stage.structured_metadata {
+			values = {
+				logger = "",
+			}
+		}
+	}
+
+	// PostgreSQL: "... [pid] LOG:  mensaje" / "FATAL:" / "ERROR:".
+	stage.match {
+		selector = "{tier=\"data\"}"
+
+		stage.regex {
+			expression = "\\s(?P<level>DEBUG\\d?|INFO|NOTICE|WARNING|ERROR|LOG|FATAL|PANIC):\\s"
+		}
+
+		stage.labels {
+			values = {
+				level = "",
+			}
+		}
+	}
+
+	forward_to = [loki.write.local.receiver]
+}
+
+loki.write "local" {
+	endpoint {
+		url = "http://loki:3100/loki/api/v1/push"
+	}
+}

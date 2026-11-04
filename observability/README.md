@@ -1,4 +1,4 @@
-# Observabilidad y SRE · Keycloak (Entregable 3)
+# Observabilidad y SRE · Keycloak (Entregables 3 y 4)
 
 Marco SRE y pila de observabilidad del sistema **Keycloak + PostgreSQL**: SLIs/SLOs, presupuesto de error,
 Prometheus, Grafana, alertas por *burn rate* y runbooks.
@@ -17,25 +17,33 @@ observability/
 │   ├── provisioning/                   # Fuentes de datos y carga de dashboards como código
 │   └── dashboards/keycloak-slo.json    # Dashboard: SLOs, Error Budget y Golden Signals
 ├── k6/carga.js                         # Generador de tráfico (perfil nominal y de estrés)
+├── loki/loki.yml                       # Almacén de logs (TSDB v13, retención 7 días)
+├── alloy/config.alloy                  # Recolector: logs de Docker -> nivel extraído del JSON -> Loki
 └── runbooks/
     ├── RB-01-errores-5xx.md            # Caída de PostgreSQL / 5xx masivos (incidente crítico)
-    └── RB-02-latencia.md               # Degradación de latencia por saturación
+    ├── RB-02-latencia.md               # Degradación de latencia por saturación
+    ├── RB-03-replica-caida.md          # Una réplica fuera de servicio (pérdida de redundancia)
+    └── RB-04-restauracion-bd.md        # Restaurar PostgreSQL desde un respaldo
 ```
 
 ## Arquitectura de la recolección
 
 ```
-                ┌──────────────── red keycloak-devops_backend ─────────────────┐
-  k6 ──HTTP──►  │  kc-app (Keycloak)  :8080 tráfico   :9000 /metrics            │
-                │        │ JDBC                         ▲                       │
-                │        ▼                              │ scrape 15 s           │
-                │  kc-postgres ◄── postgres-exporter :9187 ◄──┐                 │
-                └───────────────────────────────────────┼─────┼─────────────────┘
-                                                        │     │
-          cAdvisor :8080 (CPU/mem por contenedor) ◄─────┤  Prometheus :9090 ──reglas──► Alertmanager :9093
-                                                              │
-                                                        Grafana :3000 (PromQL)
+             ┌──────────────── red <proyecto>-<ambiente>-backend (Terraform) ────────────────┐
+  usuario ──►│ keycloak-lb (HAProxy) :8080 ──► keycloak-1 / keycloak-2 :8080   :9000 /metrics │
+  k6 ──────► │      :8404 /metrics, /stats         │ JDBC                         ▲           │
+             │                                     ▼                              │ scrape    │
+             │                                  postgres ◄── postgres-exporter :9187           │
+             └────────────────────────────────────────────────────────────────────┼───────────┘
+          cAdvisor :8080 (CPU/mem por contenedor) ◄──────── Prometheus :9090 ──reglas──► Alertmanager :9093
+                                                                │
+                                                          Grafana :3000 (PromQL)
 ```
+
+La pila se une a la red backend que crea Terraform (variable `KC_BACKEND_NETWORK` del `.env`, por
+defecto `keycloak-prod-backend`) y encuentra cada contenedor por alias DNS estables: `keycloak-1`,
+`keycloak-2`, `keycloak-lb` y `postgres`. Las credenciales del `.env` deben coincidir con las
+`TF_VAR_*` usadas al desplegar.
 
 - **Keycloak** expone métricas Micrometer en el puerto de gestión `9000` (`KC_METRICS_ENABLED=true`,
   fijado en el `Dockerfile`). Con `KC_HTTP_METRICS_SLOS=100,250,500,1000` y
@@ -45,14 +53,19 @@ observability/
 - **cAdvisor** aporta CPU y memoria de cada contenedor.
 - **Prometheus** recolecta cada 15 s, guarda 35 días (la ventana del SLO es de 30) y evalúa las reglas.
 - **Grafana** se aprovisiona por completo desde archivos: no hay configuración manual.
+- **Logs (Entregable 4):** Keycloak escribe JSON (`KC_LOG_CONSOLE_OUTPUT=json`). **Alloy** descubre por la
+  API de Docker los contenedores con la etiqueta `managed-by=terraform`, extrae el nivel (`level`) y lo envía a
+  **Loki** con las etiquetas `container`, `environment`, `tier` y `replica`. En Grafana: fila *Logs
+  estructurados* del dashboard, o *Explore → Loki* con consultas como
+  `{tier="compute", level="ERROR"} | json | line_format "{{.replica}}: {{.message}}"`.
 
 ## Puesta en marcha
 
 Requisitos: Docker Desktop y el archivo `.env` (copiado de `.env.example`, con `GRAFANA_ADMIN_PASSWORD`).
 
 ```bash
-# 1. Sistema (Keycloak + PostgreSQL)
-docker compose up -d --build
+# 1. Sistema (Terraform: 2 réplicas de Keycloak + HAProxy + PostgreSQL), ver terraform/README.md
+#    o: ./scripts/deploy.ps1 -Environment prod
 
 # 2. Observabilidad
 docker compose --env-file .env -f observability/docker-compose.yml up -d
@@ -66,6 +79,7 @@ docker compose --env-file .env -f observability/docker-compose.yml run --rm k6 r
 | Grafana (dashboard de inicio) | http://localhost:3000 · usuario `admin` |
 | Prometheus · alertas | http://localhost:9090/alerts |
 | Alertmanager | http://localhost:9093 |
+| Alloy (pipeline de logs) | http://localhost:12345 |
 
 Pruebas de las reglas (no necesitan Docker en marcha):
 
