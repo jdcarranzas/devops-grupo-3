@@ -1,7 +1,7 @@
 # =============================================================================
 # HAProxy: único punto de entrada a Keycloak (generado por Terraform).
 #   - Health checks ACTIVOS contra /health/live (puerto de gestión 9000) de
-#     cada réplica: una réplica caída o que todavía arranca sale del balanceo en ~4 s.
+#     cada réplica: una réplica caída o que todavía arranca sale del balanceo en ~6 s.
 #     Se usa liveness y NO readiness a propósito (hallazgo del GameDay): /health/ready
 #     pasa a DOWN cuando cae PostgreSQL, que es una dependencia COMPARTIDA. Con
 #     readiness, una caída de la BD sacaba a las dos réplicas a la vez: HAProxy
@@ -43,13 +43,21 @@ defaults
     option dontlognull
     timeout connect 3s
     timeout client  30s
-    timeout server  30s
+    # Keycloak responde en milisegundos; 15 s ya es una falla. Un timeout largo solo
+    # sirve para acumular peticiones colgadas cuando una réplica está saturada.
+    timeout server  15s
     timeout http-request 10s
-    # Reintentos: ante un fallo de conexión o una respuesta vacía, se reintenta
-    # la petición (hasta 3 veces) en otra réplica.
+    # Máximo tiempo en la cola del balanceador cuando las réplicas están al límite
+    # de conexiones (maxconn): pasado ese tiempo el usuario recibe un 503 rápido.
+    timeout queue   5s
+    timeout check   3s
+    # Reintentos SOLO cuando la petición nunca llegó a la réplica (conexión fallida o
+    # respuesta vacía). NO se reintenta por timeout de respuesta (hallazgo 3 del
+    # GameDay): bajo saturación eso duplicaba la carga (tormenta de reintentos) y
+    # podía procesar dos veces un POST /token.
     retries 3
     option redispatch 1
-    retry-on conn-failure empty-response response-timeout
+    retry-on conn-failure empty-response
 
 frontend fe_keycloak
     bind :8080
@@ -67,7 +75,10 @@ backend be_keycloak
     cookie KC_ROUTE insert indirect nocache httponly
     option httpchk GET /health/live
     http-check expect status 200
-    default-server check port 9000 inter 2s fall 2 rise 2 resolvers docker init-addr last,libc,none
+    # maxconn: conexiones simultáneas por réplica. El exceso espera en la cola del
+    # balanceador (timeout queue) en lugar de ahogar la JVM: descarte de carga.
+    # fall 3: una réplica lenta pero viva no sale del balanceo por un pico.
+    default-server check port 9000 inter 2s fall 3 rise 2 maxconn 32 resolvers docker init-addr last,libc,none
 %{ for s in servers ~}
     server ${s} ${s}:8080 cookie ${s}
 %{ endfor ~}

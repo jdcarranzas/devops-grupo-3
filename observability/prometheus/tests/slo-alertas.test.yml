@@ -216,3 +216,33 @@ tests:
       - eval_time: 13m
         alertname: KeycloakNoResponde
         exp_alerts: []
+
+  # ---------------------------------------------------------------------------
+  # Escenario 5: saturación con descarte de carga (hallazgo 3 del GameDay).
+  # El balanceador responde 503 a una parte del tráfico (cola llena) que nunca
+  # llega a Keycloak: la alerta debe salir de las métricas del balanceador.
+  # ---------------------------------------------------------------------------
+  - interval: 1m
+    input_series:
+      - series: 'haproxy_frontend_http_responses_total{job="haproxy", proxy="fe_keycloak", code="2xx"}'
+        values: "0+300x60 18000+150x20"
+      - series: 'haproxy_frontend_http_responses_total{job="haproxy", proxy="fe_keycloak", code="5xx"}'
+        values: "0x60 0+150x20"
+
+    alert_rule_test:
+      - eval_time: 59m
+        alertname: BalanceadorBurnRateAlto
+        exp_alerts: []
+      - eval_time: 75m
+        alertname: BalanceadorBurnRateAlto
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              slo: disponibilidad
+            exp_annotations:
+              summary: "El balanceador entrega muchos 5xx que Keycloak no registra"
+              description: >-
+                Más del 7.2 % de las respuestas del balanceador son 5xx (cola llena, timeout o sin réplicas).
+                Revisar saturación de las réplicas (RB-02) y el estado de HAProxy en /stats.
+              runbook_url: >-
+                https://github.com/jdcarranzas/devops-grupo-3/blob/main/observability/runbooks/RB-02-latencia.md

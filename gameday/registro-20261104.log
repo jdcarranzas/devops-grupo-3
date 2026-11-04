@@ -1,0 +1,13 @@
+2026-11-04 00:08:09  [-] Carga detenida (gameday-k6)
+2026-11-04 16:26:33  [-] Carga nominal iniciada con k6 (~5 req/s durante 4h)
+2026-11-04 17:23:01  [saturacion] INYECCIÓN: CPU de las réplicas limitada a 0.25 núcleos (keycloak-prod-keycloak-2, keycloak-prod-keycloak-1)
+2026-11-04 17:23:01  [saturacion] Carga de estrés iniciada (hasta 30 iteraciones/s)
+2026-11-04 17:32:57  [saturacion] Carga de estrés detenida
+2026-11-04 17:32:57  [saturacion] MITIGACIÓN: CPU de las réplicas restaurada al valor de Terraform
+2026-11-04 17:34:21  [replica] INYECCIÓN: terminación abrupta de la réplica keycloak-2 (docker kill)
+2026-11-04 17:35:25  [replica] MITIGACIÓN: se inicia la réplica keycloak-2
+2026-11-04 17:35:31  [replica] keycloak-2 de nuevo UP en HAProxy
+2026-11-04 17:36:21  [saturacion] INYECCIÓN: CPU de las réplicas limitada a 0.1 núcleos (keycloak-prod-keycloak-2, keycloak-prod-keycloak-1)
+2026-11-04 17:36:22  [saturacion] Carga de estrés iniciada (hasta 80 iteraciones/s)
+2026-11-04 17:40:25  [saturacion] Carga de estrés detenida
+2026-11-04 17:40:25  [saturacion] MITIGACIÓN: CPU de las réplicas restaurada al valor de Terraform

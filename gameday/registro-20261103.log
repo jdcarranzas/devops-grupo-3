@@ -13,3 +13,6 @@
 2026-11-03 22:02:50  [bd] PostgreSQL healthy; Keycloak se reconecta sin reiniciarse
 2026-11-03 22:06:59  [-] Carga detenida (gameday-k6)
 2026-11-03 22:07:04  [-] Carga nominal iniciada con k6 (~5 req/s durante 4h)
+2026-11-03 23:48:47  [bd] INYECCIÓN: se detiene PostgreSQL (keycloak-prod-postgres)
+2026-11-03 23:57:37  [bd] MITIGACIÓN: se inicia PostgreSQL (keycloak-prod-postgres)
+2026-11-03 23:57:49  [bd] PostgreSQL healthy; Keycloak se reconecta sin reiniciarse
