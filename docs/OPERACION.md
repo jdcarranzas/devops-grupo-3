@@ -116,7 +116,7 @@ Debe terminar en `issuer correcto` y `No changes`. Rollback: el mismo comando co
 
 ```powershell
 docker compose --env-file .env -f observability/docker-compose.yml down
-docker volume rm keycloak-observability_promdata
+docker volume rm keycloak-observability_promdata keycloak-observability_lokidata
 docker compose --env-file .env -f observability/docker-compose.yml up -d
 ./gameday/gameday.ps1 -Accion carga -Duracion 14h
 ```
