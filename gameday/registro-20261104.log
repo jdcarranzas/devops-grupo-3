@@ -20,3 +20,4 @@
 2026-11-04 19:23:25  [-] Carga detenida (gameday-k6)
 2026-11-04 19:56:08  [-] Carga nominal iniciada con k6 (~5 req/s durante 2h)
 2026-11-04 20:00:44  [-] Carga detenida (gameday-k6)
+2026-11-04 20:06:00  [-] Carga nominal iniciada con k6 (~5 req/s durante 14h)
