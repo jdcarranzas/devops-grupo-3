@@ -6,7 +6,7 @@ Todos los comandos se ejecutan en `pwsh`, desde la raíz del repositorio.
 
 ```powershell
 pwsh                         # si la ventana es "Windows PowerShell" (5.1)
-. ./scripts/sesion.ps1       # con el punto inicial: carga secretos desde .env, TF_STATE_DIR y KC_IMAGE
+. ./scripts/sesion.ps1       # con el punto inicial: secretos desde .env, $P, TF_STATE_DIR y KC_IMAGE
 ```
 
 Todo debe salir en `[OK]`. Las variables se pierden al cerrar la ventana o reiniciar el equipo.
@@ -42,13 +42,61 @@ Runner de GitHub (para despliegues automáticos), en **otra** ventana: `cd C:\ac
 ./gameday/gameday.ps1 -Escenario replica -Accion inyectar    # docker kill de keycloak-2 (RB-03)
 ./gameday/gameday.ps1 -Escenario replica -Accion revertir
 
-./gameday/gameday.ps1 -Escenario saturacion -Accion inyectar -Cpus 0.1 -TasaMax 80   # CPU + estrés (RB-02)
+./gameday/gameday.ps1 -Escenario saturacion -Accion inyectar    # 0.15 CPU por réplica + pico de 60 it/s en 20 s (RB-02)
 ./gameday/gameday.ps1 -Escenario saturacion -Accion revertir
+#    ajustes: -Cpus 0.1 (más presión)  -TasaMax 40 (menos presión)  -DuracionPico 3m
 ```
 
+| Escenario | Señal en vivo | Alerta y tiempo |
+|---|---|---|
+| `bd` | 5xx ~85 % en `/token`, p95 en segundos, `PSQLException` en logs; réplicas siguen UP en `/stats` | `PostgreSQLCaido` ~1 min · `KeycloakDisponibilidadBurnRateAlto` ~7 min |
+| `replica` | Réplicas sanas = 1, tráfico pasa a la otra, 5xx al usuario = 0, *redispatch* | `KeycloakReplicaCaida` (warning) ~1 min |
+| `saturacion` | p95 de `/token` arriba y CPU del contenedor pegada al límite en ~1 min | Ninguna crítica en minutos (exige 72 % de lentas en 1 h): se muestra en el dashboard |
+
 - Un escenario a la vez. Si se combinan (saturación + réplica), revertir en orden inverso.
+- Siempre revertir la saturación: el pico de k6 termina solo (~7 min), pero el límite de CPU queda hasta `revertir`.
 - No desplegar mientras la saturación esté activa (Terraform devolvería la CPU).
 - Las horas de cada inyección y mitigación quedan en `gameday/registro-<fecha>.log`.
+
+## 3b. Diagnóstico rápido en producción (Docker)
+
+Requiere `$P` (lo define `sesion.ps1`). Si sale `unknown shorthand flag: 'k' in -keycloak-1`, `$P` está vacía:
+ejecutar `. ./scripts/sesion.ps1` o `$P = "keycloak-prod"`.
+
+```powershell
+docker ps -a --filter "name=$P" --format "table {{.Names}}\t{{.Status}}"            # ¿qué corre y qué está detenido?
+docker stats --no-stream "$P-keycloak-1" "$P-keycloak-2" "$P-postgres"             # CPU y memoria reales
+docker inspect --format '{{.Name}} cpus={{.HostConfig.NanoCpus}}' "$P-keycloak-1" "$P-keycloak-2"   # límite de CPU
+docker inspect --format '{{.Name}} {{.State.Status}} exit={{.State.ExitCode}} OOM={{.State.OOMKilled}} reinicios={{.RestartCount}}' "$P-keycloak-1" "$P-keycloak-2"
+```
+
+Cómo leer `docker stats`:
+
+| Columna | Cómo interpretarla |
+|---|---|
+| **CPU %** | 100 % = **un núcleo**. Comparar con el límite: `NanoCpus` ÷ 1 000 000 000 = núcleos (2000000000 = 2 núcleos = 200 %). Si CPU % ≈ límite (p. ej. 15 % con `cpus=150000000`), la réplica está **saturada** → RB-02 |
+| **MEM USAGE / LIMIT** | Cerca del 100 % del límite = riesgo de OOM. En Keycloak, ~25-30 % es normal |
+| **PIDS** | Procesos e hilos (en Keycloak, hilos de la JVM: ~80-90 es normal). **No son errores**. `0` = contenedor detenido |
+| `0B / 0B` y PIDS 0 | El contenedor **no está corriendo** → `docker inspect` para ver el motivo |
+
+Cómo leer `docker inspect` del estado:
+
+| Resultado | Significado | Runbook |
+|---|---|---|
+| `exited exit=137 OOM=false` | Terminación externa (`docker kill`, GameDay) | RB-03 |
+| `OOM=true` | Se quedó sin memoria | RB-03 (subir `keycloak_memory_mb` por PR) |
+| `running` pero sin responder | Saturación o bloqueo | RB-02 |
+| `reinicios` aumentando | Falla al arrancar (configuración, BD) | RB-01 / RB-03 + logs |
+
+Los **errores** no se ven en `docker stats`. Se ven en:
+
+| Dónde | Qué mirar |
+|---|---|
+| http://localhost:8405/stats | **Errors → Conn / Resp**, **Warnings → Retr / Redis**, **Status** y **LastChk** de cada réplica |
+| `./gameday/gameday.ps1 -Accion estado` | Réplicas en HAProxy (Estado, Redispatch, ErroresConexion), SLIs de 5 min y alertas activas |
+| Grafana · *Alta disponibilidad* | *5xx entregados al usuario, reintentos y redispatch* |
+| Grafana · *Golden Signals* | *Errores por código HTTP* y *Tasa de error 5xx* |
+| Grafana · *Logs estructurados* | Causa raíz (`PSQLException`, `FATAL`, etc.) por réplica |
 
 ## 4. Desplegar un cambio
 

@@ -12,8 +12,8 @@
        tiene las mismas contraseñas que usan postgres-exporter y k6:
          POSTGRES_PASSWORD           -> TF_VAR_db_password
          KC_BOOTSTRAP_ADMIN_PASSWORD -> TF_VAR_keycloak_admin_password
-    3. Define TF_STATE_DIR (carpeta del estado de Terraform) y KC_IMAGE (imagen de
-       Keycloak del commit actual), para usarlos en los comandos de docs/OPERACION.md.
+    3. Define $P (prefijo de los contenedores, "keycloak-prod") para los comandos de los
+       runbooks, y TF_STATE_DIR y KC_IMAGE para los comandos de docs/OPERACION.md.
 
     Las variables solo existen en esta ventana: al cerrarla o reiniciar hay que volver
     a ejecutar este script. Nunca imprime los secretos.
@@ -49,17 +49,21 @@ else {
     Write-Check $false "" "No existe .env en la raíz del repositorio (copiar .env.example y completar)"
 }
 
-# 3. Estado de Terraform e imagen del commit actual
+# 3. Prefijo de los contenedores, usado en los comandos de los runbooks ("$P-keycloak-1", ...)
+$global:P = "keycloak-prod"
+Write-Host "  [INFO]  P = $global:P (prefijo de los contenedores en los runbooks)" -ForegroundColor Yellow
+
+# 4. Estado de Terraform e imagen del commit actual
 if (-not $env:TF_STATE_DIR) { $env:TF_STATE_DIR = "C:/terraform-state/devops-grupo-3" }
 Write-Check (Test-Path $env:TF_STATE_DIR) "TF_STATE_DIR = $env:TF_STATE_DIR" "No existe la carpeta de estado $env:TF_STATE_DIR"
 
-$sha = git -C $repoRoot rev-parse --short=7 HEAD 2>$null
+# Solo los commits de main tienen imagen publicada por el CI: KC_IMAGE se arma con el
+# último commit de origin/main, sin importar en qué rama se esté trabajando.
+git -C $repoRoot fetch origin main --quiet 2>$null
+$sha = git -C $repoRoot rev-parse --short=7 origin/main 2>$null
 $branch = git -C $repoRoot rev-parse --abbrev-ref HEAD 2>$null
 $env:KC_IMAGE = "ghcr.io/jdcarranzas/devops-grupo-3:sha-$sha"
-Write-Host "  [INFO]  Rama '$branch', KC_IMAGE = $env:KC_IMAGE" -ForegroundColor Yellow
-if ($branch -ne "main") {
-    Write-Host "          Ojo: solo los commits de main tienen imagen publicada por el CI." -ForegroundColor Yellow
-}
+Write-Host "  [INFO]  Rama actual '$branch'; KC_IMAGE = $env:KC_IMAGE (último commit de origin/main)" -ForegroundColor Yellow
 
 if ($ok) { Write-Host "`nListo. Siguiente paso: ver docs/OPERACION.md`n" -ForegroundColor Green }
 else { Write-Host "`nCorrija lo marcado como [FALTA] antes de desplegar.`n" -ForegroundColor Red }

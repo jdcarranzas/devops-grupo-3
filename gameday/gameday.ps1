@@ -13,8 +13,10 @@
                   Esperado: HAProxy la saca del balanceo, 0 errores al usuario, KeycloakReplicaCaida (warning).
                   Runbook: RB-03.
       saturacion  Agotamiento de recursos: se limita la CPU de las réplicas (docker update --cpus) y se
-                  lanza la carga de estrés de k6. Esperado: sube el p95 y el burn rate de latencia (5 m).
-                  Runbook: RB-02.
+                  lanza un pico de carga con k6 (llega a -TasaMax en 20 s y dura -DuracionPico).
+                  Esperado en ~1 min: sube el p95 de /token, la CPU queda al límite y se dispara el
+                  burn rate de latencia de 5 m. La alerta crítica de latencia NO salta en minutos
+                  (exige 72 % de lentas en 1 h): se detecta en el dashboard. Runbook: RB-02.
 
     Acciones:
       inyectar       Provoca la falla del escenario.
@@ -47,10 +49,13 @@ param(
     [int] $Replica = 2,
 
     # Límite de CPU por réplica durante el escenario "saturacion".
-    [string] $Cpus = "0.25",
+    [string] $Cpus = "0.15",
 
-    # Tasa máxima (iteraciones/s) de la carga de estrés del escenario "saturacion".
-    [int] $TasaMax = 30,
+    # Tasa máxima (iteraciones/s) del pico de carga del escenario "saturacion".
+    [int] $TasaMax = 60,
+
+    # Cuánto se mantiene el pico de carga del escenario "saturacion" (formato de k6).
+    [string] $DuracionPico = "6m",
 
     # Duración de la carga nominal (acción "carga").
     [string] $Duracion = "60m"
@@ -193,11 +198,12 @@ switch ($Accion) {
                 Write-Evento "INYECCIÓN: CPU de las réplicas limitada a $Cpus núcleos ($($replicas -join ', '))" "Red"
                 foreach ($r in $replicas) { Invoke-Docker @("update", "--cpus", $Cpus, $r) -Quiet }
                 if (-not (docker ps -q --filter "name=^/gameday-k6-estres$")) {
-                    Invoke-Docker (@($compose) + @("run", "-d", "--rm", "--name", "gameday-k6-estres", "-e", "PERFIL=estres",
-                            "-e", "TASA_MAX=$TasaMax", "k6", "run", "--quiet", "/scripts/carga.js")) -Quiet
-                    Write-Evento "Carga de estrés iniciada (hasta $TasaMax iteraciones/s)" "Red"
+                    Invoke-Docker (@($compose) + @("run", "-d", "--rm", "--name", "gameday-k6-estres", "-e", "PERFIL=pico",
+                            "-e", "TASA_MAX=$TasaMax", "-e", "DURACION=$DuracionPico", "k6", "run", "--quiet", "/scripts/carga.js")) -Quiet
+                    Write-Evento "Pico de carga iniciado: $TasaMax iteraciones/s en 20 s, durante $DuracionPico" "Red"
                 }
-                Write-Host "Esperado: sube el p95 de /token (hash de contraseñas) y el burn rate de latencia de 5 m (RB-02)."
+                Write-Host "Esperado en ~1 min: p95 de /token arriba, CPU al límite, burn rate de latencia 5 m disparado (RB-02)."
+                Write-Host "La alerta crítica de latencia no salta en minutos (exige 72 % de lentas en 1 h): mostrarlo en el dashboard."
             }
         }
     }

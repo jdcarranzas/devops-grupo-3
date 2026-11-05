@@ -14,6 +14,8 @@
 //   nominal : tráfico estable y bajo (por defecto). Para las capturas del dashboard.
 //   estres  : rampa hasta muchos usuarios concurrentes. Para degradar la latencia
 //             y saturar CPU/pool de conexiones.
+//   pico    : sube a TASA_MAX en 20 s, la mantiene durante DURACION (por defecto 6m)
+//             y baja en 20 s. Para el GameDay: la degradación aparece en ~1 minuto.
 //
 // Uso (desde la raíz del repositorio):
 //   docker compose --env-file .env -f observability/docker-compose.yml \
@@ -59,6 +61,18 @@ const perfiles = {
       { target: TASA_MAX, duration: '3m' },
       { target: TASA_MAX, duration: '5m' },
       { target: 5, duration: '1m' },
+    ],
+  },
+  pico: {
+    executor: 'ramping-arrival-rate',
+    startRate: 5,
+    timeUnit: '1s',
+    preAllocatedVUs: 100,
+    maxVUs: Math.max(300, TASA_MAX * 5),
+    stages: [
+      { target: TASA_MAX, duration: '20s' },
+      { target: TASA_MAX, duration: __ENV.DURACION || '6m' },
+      { target: 5, duration: '20s' },
     ],
   },
 };
