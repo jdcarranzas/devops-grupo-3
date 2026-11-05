@@ -100,6 +100,16 @@ function Wait-ReplicaUp([string] $server, [int] $timeoutSeconds = 90) {
     throw "La réplica $server no volvió a estado UP en el balanceador en $timeoutSeconds s."
 }
 
+# La imagen debe existir ANTES de tocar nada: si no, se fallaría con una réplica ya
+# fuera del balanceador. (Solo los commits de main tienen imagen publicada por el CI.)
+if ($Image) {
+    Write-Step "Verificando que la imagen exista: $Image"
+    docker pull $Image | Out-Host
+    if ($LASTEXITCODE -ne 0) {
+        throw "La imagen $Image no existe o no se puede descargar. Use el tag de un commit de main (ver 'Resolver la imagen a desplegar' en el último job Deploy). No se hizo ningún cambio."
+    }
+}
+
 $previousDataDir = $env:TF_DATA_DIR
 Push-Location $tfDir
 try {
@@ -158,7 +168,16 @@ try {
             Start-Sleep -Seconds $DrainSeconds
 
             Write-Step "Réplica ${server}: reemplazo con Terraform (espera a /health/ready = UP)"
-            Invoke-Terraform (@("apply", "-auto-approve", "-input=false", $target) + $tfVars) | Out-Null
+            try {
+                Invoke-Terraform (@("apply", "-auto-approve", "-input=false", $target) + $tfVars) | Out-Null
+            }
+            catch {
+                # No dejar la réplica fuera del balanceador: si sigue viva, vuelve a atender;
+                # si quedó caída, el health check de HAProxy la mantiene fuera igualmente.
+                Write-Warning "Falló el reemplazo de ${server}: se devuelve al balanceador antes de terminar."
+                Send-HAProxyCommand "set server be_keycloak/$server state ready" | Out-Null
+                throw
+            }
 
             Write-Step "Réplica ${server}: de vuelta al balanceador"
             Send-HAProxyCommand "set server be_keycloak/$server state ready" | Out-Null
