@@ -7,7 +7,7 @@ Prometheus, Grafana, alertas por *burn rate* y runbooks.
 observability/
 ├── docker-compose.yml                  # Prometheus, Alertmanager, Grafana, postgres-exporter, cAdvisor, k6
 ├── prometheus/
-│   ├── prometheus.yml                  # Qué se recolecta y cada cuánto
+│   ├── prometheus.yml                  # Qué se recolecta y cada cuánto.
 │   ├── rules/
 │   │   ├── slo-recording.yml           # SLIs precalculados (5m … 30d), presupuesto restante y burn rate
 │   │   └── slo-alertas.yml             # Alertas multiventana de burn rate + servicio caído
