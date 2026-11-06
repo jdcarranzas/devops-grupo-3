@@ -26,7 +26,7 @@ terraform/
 ├── policy/
 │   ├── docker.rego        # políticas OPA (conftest) evaluadas sobre el plan
 │   └── docker_test.rego   # pruebas unitarias de las políticas
-├── .tflint.hcl            # reglas de TFLint
+├── .tflint.hcl            # reglas de TFLint.
 └── .checkov.yaml          # configuración de Checkov.
 ```
 
