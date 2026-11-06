@@ -114,12 +114,44 @@ Debe terminar en `issuer correcto` y `No changes`. Rollback: el mismo comando co
 
 ## 5. Reiniciar la telemetría (historial limpio)
 
+Borra **métricas (Prometheus) y logs (Loki)** para empezar desde 0. No toca Keycloak, HAProxy ni Postgres
+(son de Terraform), solo la pila `obs-*`. Calendario previo a la sesión:
+
+- **Jueves:** reinicio de prueba (limpiar lo de los ensayos).
+- **Viernes en la noche:** reinicio definitivo + carga de 14 h, para llegar el sábado con historia limpia y SLO al 100 %.
+- **Sábado:** no reiniciar; en Grafana usar el rango *Last 30 minutes*.
+
 ```powershell
+# 1. Detener la carga si estaba corriendo
+./gameday/gameday.ps1 -Accion detener-carga
+
+# 2. Bajar la pila de observabilidad y borrar el historial
 docker compose --env-file .env -f observability/docker-compose.yml down
+docker volume rm keycloak-observability_promdata keycloak-observability_lokidata
+
+# 3. Levantarla de nuevo y relanzar la carga
+docker compose --env-file .env -f observability/docker-compose.yml up -d
+./gameday/gameday.ps1 -Accion carga -Duracion 14h
+```
+
+**Si el `volume rm` falla con `volume is in use`**, quedó algún contenedor usando el volumen (el `down` no
+corrió o no los encontró). Ver cuál es y forzar su borrado:
+
+```powershell
+docker ps -a --filter volume=keycloak-observability_promdata --filter volume=keycloak-observability_lokidata --format "table {{.Names}}\t{{.Status}}"
+
+docker rm -f obs-prometheus obs-loki
 docker volume rm keycloak-observability_promdata keycloak-observability_lokidata
 docker compose --env-file .env -f observability/docker-compose.yml up -d
 ./gameday/gameday.ps1 -Accion carga -Duracion 14h
 ```
+
+Qué esperar después del reinicio:
+
+- Los primeros minutos el SLO y el burn rate se ven "nerviosos": con poco tráfico acumulado cualquier error pesa
+  mucho. Se estabilizan con horas de carga continua.
+- Los WARN `LOGIN_ERROR` (`invalid_user_credentials`, usuario `usuario-demo`) reaparecen apenas arranca k6: son
+  intencionales (k6 prueba una contraseña incorrecta). No son una falla.
 
 Si se cambia algún archivo de configuración de `observability/`, recrear la pila (`down` + `up -d`) o reiniciar el
 contenedor afectado: `up -d` no recarga los archivos montados.
