@@ -26,7 +26,7 @@ observability/
     └── RB-04-restauracion-bd.md        # Restaurar PostgreSQL desde un respaldo
 ```
 
-## Arquitectura de la recolección
+## Arquitectura de la recolección.
 
 ```
              ┌──────────────── red <proyecto>-<ambiente>-backend (Terraform) ────────────────┐

@@ -11,7 +11,7 @@ pwsh                         # si la ventana es "Windows PowerShell" (5.1)
 
 Todo debe salir en `[OK]`. Las variables se pierden al cerrar la ventana o reiniciar el equipo.
 
-## 1. Encender todo (después de reiniciar el equipo)
+## 1. Encender todo (después de reiniciar el equipo).
 
 ```powershell
 # Docker Desktop debe estar abierto ("Engine running")
