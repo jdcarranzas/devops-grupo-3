@@ -10,7 +10,7 @@ modular y validado automáticamente en GitHub Actions.
 ```
 terraform/
 ├── versions.tf            # versión de Terraform, provider y backend (estado local)
-├── providers.tf           # conexión al daemon de Docker
+├── providers.tf           # conexión al daemon de Docker.
 ├── locals.tf              # prefijo de nombres y etiquetas comunes
 ├── main.tf                # módulo raíz: network -> database -> keycloak -> loadbalancer
 ├── variables.tf           # variables de entrada (con tipos y validaciones)
