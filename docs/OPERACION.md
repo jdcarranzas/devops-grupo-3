@@ -33,7 +33,7 @@ Runner de GitHub (para despliegues automáticos), en **otra** ventana: `cd C:\ac
 | Keycloak (consola) | http://localhost:8081 |
 | Pipeline de logs | http://localhost:12345 (Alloy) |
 
-## 3. GameDay (inyectar → observar → revertir)
+## 3. GameDay (inyectar → observar → revertir).
 
 ```powershell
 ./gameday/gameday.ps1 -Escenario bd      -Accion inyectar    # caída de PostgreSQL (RB-01)

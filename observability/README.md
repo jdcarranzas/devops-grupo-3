@@ -9,7 +9,7 @@ observability/
 ├── prometheus/
 │   ├── prometheus.yml                  # Qué se recolecta y cada cuánto.
 │   ├── rules/
-│   │   ├── slo-recording.yml           # SLIs precalculados (5m … 30d), presupuesto restante y burn rate
+│   │   ├── slo-recording.yml           # SLIs precalculados (5m … 30d), presupuesto restante y burn rate.
 │   │   └── slo-alertas.yml             # Alertas multiventana de burn rate + servicio caído
 │   └── tests/slo-alertas.test.yml      # Pruebas unitarias de las reglas (promtool)
 ├── alertmanager/alertmanager.yml       # Agrupación, enrutamiento por severidad e inhibición
